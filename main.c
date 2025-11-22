@@ -90,38 +90,6 @@ u16 icosahedron_indices[] = {
 
 static Instance instances[1] = {0};
 
-void subdivide(Vertex* vertices, u32* n_vertices, u16* indices, u32* n_indices)
-{
-    u32 n = *n_indices;
-    for (u32 i = 0; i < n; i+= 3)
-    {
-        u16 i1 = indices[i + 0];
-        u16 i3 = indices[i + 1];
-        u16 i5 = indices[i + 2];
-        Vertex v1 = vertices[i1];
-        Vertex v3 = vertices[i3];
-        Vertex v5 = vertices[i5];
-
-        Vertex v2 = { .position = glms_vec3_scale(glms_vec3_add(v1.position, v3.position), 0.5f) };
-        Vertex v4 = { .position = glms_vec3_scale(glms_vec3_add(v3.position, v5.position), 0.5f) };
-        Vertex v6 = { .position = glms_vec3_scale(glms_vec3_add(v5.position, v1.position), 0.5f) };
-
-        u16 i2 = *n_vertices; vertices[(*n_vertices)++] = v2;
-        u16 i4 = *n_vertices; vertices[(*n_vertices)++] = v4;
-        u16 i6 = *n_vertices; vertices[(*n_vertices)++] = v6;
-
-        indices[i] = i1; indices[i + 1] = i2; indices[i + 2] = i6;
-        indices[(*n_indices)++] = i2; indices[(*n_indices)++] = i3; indices[(*n_indices)++] = i4;
-        indices[(*n_indices)++] = i4; indices[(*n_indices)++] = i5; indices[(*n_indices)++] = i6;
-        indices[(*n_indices)++] = i6; indices[(*n_indices)++] = i2; indices[(*n_indices)++] = i4;
-    }
-
-    for_each_n(vertex, vertices, *n_vertices)
-    {
-        vertex->position = vertex->normal = glms_vec3_normalize(vertex->position);
-    }
-}
-
 Texture create_texture(WGPUDevice device, WGPUStringView label, u32 w, u32 h, WGPUTextureFormat format, WGPUTextureUsage usage, WGPUTextureAspect aspect)
 {
     Texture tex;
@@ -317,24 +285,22 @@ Context create_context(WGPUDevice device, WGPUQueue queue)
 
         ctx.n_vertices = array_len(icosahedron_indices) / 3;
         ctx.n_indices = array_len(icosahedron_indices);
-        Vertex vertices[ctx.n_vertices * 6 * 6];
-        u16 indices[ctx.n_indices * 4 * 4];
-        buf_copy(vertices, icosahedron_vertices, sizeof(icosahedron_vertices));
-        buf_copy(indices, icosahedron_indices, sizeof(icosahedron_indices));
-        subdivide(vertices, &ctx.n_vertices, indices, &ctx.n_indices);
-        subdivide(vertices, &ctx.n_vertices, indices, &ctx.n_indices);
+        array_for_each(icosahedron_vertices, v)
+        {
+            v->position = v->normal = glms_vec3_normalize(v->position);
+        }
 
         ctx.vertex_buffer = wgpuDeviceCreateBuffer(device, &(WGPUBufferDescriptor) {
-            .size = sizeof(vertices),
+            .size = sizeof(icosahedron_vertices),
             .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex,
             });
-        wgpuQueueWriteBuffer(queue, ctx.vertex_buffer, 0, vertices, sizeof(vertices));
+        wgpuQueueWriteBuffer(queue, ctx.vertex_buffer, 0, icosahedron_vertices, sizeof(icosahedron_vertices));
 
         ctx.index_buffer = wgpuDeviceCreateBuffer(device, &(WGPUBufferDescriptor) {
-            .size = sizeof(indices),
+            .size = sizeof(icosahedron_indices),
             .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index,
             });
-        wgpuQueueWriteBuffer(queue, ctx.index_buffer, 0, indices, sizeof(indices));
+        wgpuQueueWriteBuffer(queue, ctx.index_buffer, 0, icosahedron_indices, sizeof(icosahedron_indices));
 
         ctx.instance_buffer = wgpuDeviceCreateBuffer(device, &(WGPUBufferDescriptor) {
                 .size = sizeof(instances),
@@ -380,7 +346,7 @@ int main(int argc, char* argv[])
         dt_samples += 1.0f;
         prev_time = time;
 
-        SURFACE( .title = S8("surface"), .width = 800, .height = 800, .clear_color = dark, .is_open = &main_is_open, .cursor_disabled = true )
+        SURFACE( .title = str("surface"), .width = 800, .height = 800, .clear_color = dark, .is_open = &main_is_open, .cursor_disabled = true )
         {
             camera_yaw = (CURSOR().x / 1000.0f) * camera_sensitivity;
             camera_pitch = -(CURSOR().y / 1000.0f) * camera_sensitivity;
