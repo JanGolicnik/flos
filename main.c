@@ -1,4 +1,3 @@
-#include <printccy/printccy.h>
 #include <marrow/marrow.h>
 
 #define RIPPLE_IMPLEMENTATION
@@ -8,6 +7,8 @@
 
 #define CGLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <cglm/struct.h>
+
+#include "colere.h"
 
 struct(Texture) {
     WGPUTexture texture;
@@ -19,11 +20,10 @@ struct(Context) {
     Texture target;
     Texture depth;
 
+    Plant plant;
     WGPUBuffer vertex_buffer;
     WGPUBuffer index_buffer;
     WGPUBuffer instance_buffer;
-    u32 n_vertices;
-    u32 n_indices;
 
     WGPURenderPipeline pipeline;
     WGPUPipelineLayout pipeline_layout;
@@ -41,51 +41,8 @@ struct(ShaderData) {
     f32 time;
 };
 
-struct(Vertex) {
-    vec3s position;
-    vec3s normal;
-};
-
 struct(Instance) {
     mat4 model_matrix;
-};
-
-Vertex icosahedron_vertices[] = {
-    { .position = {{ 0.000000, -1.000000,  0.000000 }} },
-    { .position = {{ 0.723600, -0.447215,  0.525720 }} },
-    { .position = {{ -0.276385, -0.447215,  0.850640 }} },
-    { .position = {{ -0.894425, -0.447215,  0.000000 }} },
-    { .position = {{ -0.276385, -0.447215, -0.850640 }} },
-    { .position = {{ 0.723600, -0.447215, -0.525720 }} },
-    { .position = {{ 0.276385,  0.447215,  0.850640 }} },
-    { .position = {{ -0.723600,  0.447215,  0.525720 }} },
-    { .position = {{ -0.723600,  0.447215, -0.525720 }} },
-    { .position = {{ 0.276385,  0.447215, -0.850640 }} },
-    { .position = {{ 0.894425,  0.447215,  0.000000 }} },
-    { .position = {{ 0.000000,  1.000000,  0.000000 }} },
-};
-
-u16 icosahedron_indices[] = {
-    0, 1, 2,
-    1, 0, 5,
-    0, 2, 3,
-    0, 3, 4,
-    0, 4, 5,
-    1, 5, 10,
-    2, 1, 6,
-    3, 2, 7,
-    4, 3, 8,
-    5, 4, 9,
-    1, 10, 6,
-    2, 6, 7,
-    3, 7, 8,
-    4, 8, 9,
-    5, 9, 10,
-    6, 10, 11,
-    7, 6, 11,
-    8, 7, 11,
-    9, 8, 11,
-    10, 9, 11,
 };
 
 static Instance instances[1] = {0};
@@ -93,7 +50,6 @@ static Instance instances[1] = {0};
 Texture create_texture(WGPUDevice device, WGPUStringView label, u32 w, u32 h, WGPUTextureFormat format, WGPUTextureUsage usage, WGPUTextureAspect aspect)
 {
     Texture tex;
-
     tex.extent = (WGPUExtent3D){ .width = w, .height = h, .depthOrArrayLayers = 1 };
 
     tex.texture = wgpuDeviceCreateTexture(device, &(WGPUTextureDescriptor){
@@ -127,7 +83,7 @@ Context create_context(WGPUDevice device, WGPUQueue queue)
         ctx.shader_data.layout = wgpuDeviceCreateBindGroupLayout(device, &(WGPUBindGroupLayoutDescriptor){
             .entryCount = 1,
             .entries = (WGPUBindGroupLayoutEntry[]) {
-                [0] = {
+                {
                     .binding = 0,
                     .visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment,
                     .buffer = {
@@ -147,7 +103,7 @@ Context create_context(WGPUDevice device, WGPUQueue queue)
             .layout = ctx.shader_data.layout,
             .entryCount = 1,
             .entries = (WGPUBindGroupEntry[]){
-                [0] = {
+                {
                     .binding = 0,
                     .buffer = ctx.shader_data.buffer,
                     .offset = 0,
@@ -191,42 +147,42 @@ Context create_context(WGPUDevice device, WGPUQueue queue)
                     .entryPoint = WEBGPU_STR("vs_main"),
                     .bufferCount = 2,
                     .buffers = (WGPUVertexBufferLayout[]) {
-                        [0] = {
+                        {
                             .attributeCount = 2,
                             .attributes = (WGPUVertexAttribute[]) {
-                                [0] = {
+                                {
                                     .shaderLocation = 0,
                                     .format = WGPUVertexFormat_Float32x3,
                                     .offset = 0
                                 },
-                                [1] = {
+                                {
                                     .shaderLocation = 1,
                                     .format = WGPUVertexFormat_Float32x3,
-                                    .offset = offsetof(Vertex, normal)
+                                    .offset = offsetof(PlantVertex, normal)
                                 }
                             },
-                            .arrayStride = sizeof(Vertex),
+                            .arrayStride = sizeof(PlantVertex),
                             .stepMode = WGPUVertexStepMode_Vertex,
                         },
-                        [1] = {
+                        {
                             .attributeCount = 4,
                             .attributes = (WGPUVertexAttribute[]) {
-                                [0] = {
+                                {
                                     .shaderLocation = 2,
                                     .format = WGPUVertexFormat_Float32x4,
                                     .offset = 0
                                 },
-                                [1] = {
+                                {
                                     .shaderLocation = 3,
                                     .format = WGPUVertexFormat_Float32x4,
                                     .offset = sizeof(vec4)
                                 },
-                                [2] = {
+                                {
                                     .shaderLocation = 4,
                                     .format = WGPUVertexFormat_Float32x4,
                                     .offset = sizeof(vec4) * 2
                                 },
-                                [3] = {
+                                {
                                     .shaderLocation = 5,
                                     .format = WGPUVertexFormat_Float32x4,
                                     .offset = sizeof(vec4) * 3
@@ -239,7 +195,6 @@ Context create_context(WGPUDevice device, WGPUQueue queue)
                 },
                 .primitive = {
                     .topology = WGPUPrimitiveTopology_TriangleList,
-                    /* .topology = WGPUPrimitiveTopology_TriangleStrip, */
                     .stripIndexFormat = WGPUIndexFormat_Undefined,
                     .frontFace = WGPUFrontFace_CCW,
                     .cullMode = WGPUCullMode_None
@@ -283,24 +238,31 @@ Context create_context(WGPUDevice device, WGPUQueue queue)
 
         wgpuShaderModuleRelease(shader_module);
 
-        ctx.n_vertices = array_len(icosahedron_indices) / 3;
-        ctx.n_indices = array_len(icosahedron_indices);
-        array_for_each(icosahedron_vertices, v)
+
         {
-            v->position = v->normal = glms_vec3_normalize(v->position);
+            FILE *fp = fopen("system.json", "rb");
+            fseek(fp, 0, SEEK_END);
+            u64 len = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            char plant_json[len];
+            fread(plant_json, len, 1, fp);
+            plant_json[len] = 0;
+            fclose(fp);
+
+            ctx.plant = generate_plant(0, plant_config_from_json((s8)array_slice(plant_json)));
         }
 
         ctx.vertex_buffer = wgpuDeviceCreateBuffer(device, &(WGPUBufferDescriptor) {
             .size = sizeof(icosahedron_vertices),
             .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex,
             });
-        wgpuQueueWriteBuffer(queue, ctx.vertex_buffer, 0, icosahedron_vertices, sizeof(icosahedron_vertices));
+        wgpuQueueWriteBuffer(queue, ctx.vertex_buffer, 0, ctx.plant.vertices.start, slice_size(ctx.plant.vertices));
 
         ctx.index_buffer = wgpuDeviceCreateBuffer(device, &(WGPUBufferDescriptor) {
             .size = sizeof(icosahedron_indices),
             .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index,
             });
-        wgpuQueueWriteBuffer(queue, ctx.index_buffer, 0, icosahedron_indices, sizeof(icosahedron_indices));
+        wgpuQueueWriteBuffer(queue, ctx.index_buffer, 0, ctx.plant.indices.start, slice_size(ctx.plant.indices));
 
         ctx.instance_buffer = wgpuDeviceCreateBuffer(device, &(WGPUBufferDescriptor) {
                 .size = sizeof(instances),
@@ -329,8 +291,8 @@ int main(int argc, char* argv[])
 
     ShaderData shader_data = { 0 };
 
-    f32 camera_sensitivity = 10.0f;
-    f32 camera_yaw = 0.0f;
+    f32 camera_sensitivity = 0.001f;
+    f32 camera_yaw = -3.14f;
     f32 camera_pitch = 0.0f;
 
     bool main_is_open = true;
@@ -348,11 +310,10 @@ int main(int argc, char* argv[])
 
         SURFACE( .title = str("surface"), .width = 800, .height = 800, .clear_color = dark, .is_open = &main_is_open, .cursor_disabled = true )
         {
-            camera_yaw = (CURSOR().x / 1000.0f) * camera_sensitivity;
-            camera_pitch = -(CURSOR().y / 1000.0f) * camera_sensitivity;
+            camera_yaw += CURSOR().dx * camera_sensitivity;
+            camera_pitch += CURSOR().dy * camera_sensitivity;
 
-            if (camera_pitch >  1.55f) camera_pitch =  1.55f;
-            if (camera_pitch < -1.55f) camera_pitch = -1.55f;
+            camera_pitch = clamp(camera_pitch, -1.55f, 1.55f);
 
             shader_data.camera_position = (vec3s){ .z = 20.0f };
 
@@ -400,7 +361,7 @@ int main(int argc, char* argv[])
             wgpuRenderPassEncoderSetIndexBuffer(render_pass, ctx.index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(ctx.index_buffer));
             wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, ctx.instance_buffer, 0, wgpuBufferGetSize(ctx.instance_buffer));
             wgpuRenderPassEncoderSetBindGroup(render_pass, 0, ctx.shader_data.group, 0, NULL);
-            wgpuRenderPassEncoderDrawIndexed(render_pass, ctx.n_indices, array_len(instances), 0, 0, 0);
+            wgpuRenderPassEncoderDrawIndexed(render_pass, slice_count(ctx.plant.indices), array_len(instances), 0, 0, 0);
 
             wgpuRenderPassEncoderEnd(render_pass);
             wgpuRenderPassEncoderRelease(render_pass);

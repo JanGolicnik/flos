@@ -1,0 +1,26 @@
+{
+  "initial": "A",
+  "rules": {
+    "A": "f[RA][RA]",
+    "R": ">(-20.0~20.0)^(-20.0~20.0)S",
+    "S": "|(0.9)"
+  },
+  "rendering": {
+    "default_angle_change": 15.0,
+    "shapes": {
+      "f": {
+        "Branch": {
+          "width": 6,
+          "length": 0.2,
+          "angle": 20.0
+        }
+      },
+      "s": {
+        "Circle": {
+          "size": 0.06,
+          "color": [1.0, 0.08, 0.1]
+        }
+      }
+    }
+  }
+}

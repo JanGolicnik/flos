@@ -12,7 +12,7 @@ if not exist %build_dir% (
    build.bat %configuration%
 )
 
-copy /Y "shader.wgsl" %build_dir%\
+copy /Y "res" %build_dir%\
 
 cd %build_dir%
 

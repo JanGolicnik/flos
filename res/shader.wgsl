@@ -39,6 +39,6 @@ fn vs_main(v: VertexInput, i: InstanceInput, @builtin(vertex_index) index: u32) 
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    let color = vec3f(dot(in.normal, normalize(vec3f(1.0f, -1.0f, 1.0f))));
+    let color = vec3f(dot(in.normal, normalize(vec3f(1.0f, 1.0f, 1.0f))));
     return vec4f(pow(color, vec3f(2.2)), 1.0f);
 }
