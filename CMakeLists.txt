@@ -10,27 +10,20 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/recp/cglm.git
   GIT_TAG        v0.9.5
 )
-
 FetchContent_Declare(
     marrow
     GIT_REPOSITORY https://github.com/JanGolicnik/marrow.git
 )
-
 FetchContent_Declare(
     printccy
     GIT_REPOSITORY https://github.com/JanGolicnik/printccy.git
 )
-
 FetchContent_Declare(
     ripple
     GIT_REPOSITORY https://github.com/JanGolicnik/ripple.git
 )
 
 FetchContent_MakeAvailable(cglm marrow printccy ripple)
-
-add_subdirectory(glfw)
-add_subdirectory(webgpu)
-add_subdirectory(glfw3webgpu)
 
 set(SOURCES main.c)
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -pedantic -Wall -Wextra -Werror -Wno-missing-field-initializers -Wno-unused-parameter -Wno-unused-function -Wno-bitfield-constant-conversion -Wno-misleading-indentation")
@@ -39,17 +32,27 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 
 target_include_directories(${PROJECT_NAME} PUBLIC
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/lib/webgpu/include
 )
 
+if (EMSCRIPTEN)
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        --use-port=emdawnwebgpu
+        -Wno-gnu-zero-variadic-macro-arguments
+        -Wno-language-extension-token
+    )
+
+    target_link_options(${PROJECT_NAME} PRIVATE
+        -sUSE_GLFW=3
+        --use-port=emdawnwebgpu
+        -sASYNCIFY
+    )
+
+    set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")
+endif()
+
 target_link_libraries(${PROJECT_NAME}
-    webgpu
-    glfw
-    glfw3webgpu
     cglm
     marrow
     printccy
     ripple
 )
-
-target_copy_webgpu_binaries(${PROJECT_NAME})
