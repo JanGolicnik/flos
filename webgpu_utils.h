@@ -83,3 +83,14 @@ static WGPUDevice get_device(WGPUAdapter adapter)
     while(!request_device_user_data.request_done) emscripten_sleep(100);
     return request_device_user_data.device;
 }
+
+static WGPUSurface get_surface(WGPUInstance instance)
+{
+    WGPUEmscriptenSurfaceSourceCanvasHTMLSelector fromCanvasHTMLSelector = { 0 };
+    fromCanvasHTMLSelector.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
+    fromCanvasHTMLSelector.selector = (WGPUStringView){ "canvas", WGPU_STRLEN };
+    WGPUSurfaceDescriptor surfaceDescriptor;
+    surfaceDescriptor.nextInChain = &fromCanvasHTMLSelector.chain;
+    surfaceDescriptor.label = (WGPUStringView){ NULL, WGPU_STRLEN };
+    return wgpuInstanceCreateSurface(instance, &surfaceDescriptor);
+}
