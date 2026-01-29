@@ -42,9 +42,10 @@ if (EMSCRIPTEN)
     )
 
     target_link_options(${PROJECT_NAME} PRIVATE
-        -sUSE_GLFW=3
         --use-port=emdawnwebgpu
         -sASYNCIFY
+        --embed-file "${CMAKE_CURRENT_SOURCE_DIR}/res@/res"
+        -sSTACK_SIZE=100048576
     )
 
     set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")

@@ -13,10 +13,11 @@ if "%configuration%"=="release" (
 set build_dir=build\%configuration%
 
 if exist "%build_dir%" (
-    rmdir /s /q %build_dir%
+    if exist "build_old" (
+        rmdir /s /q "build_old"
+    )
+    move "%build_dir%" "build_old"
 )
 mkdir %build_dir%
 
 emcmake cmake -B %build_dir% -DCMAKE_BUILD_TYPE=%BUILD_TYPE%
-
-copy /Y "roboto.ttf" %build_dir%
