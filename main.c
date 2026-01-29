@@ -1,5 +1,6 @@
 #include <emscripten.h>
 #include <marrow/marrow.h>
+#include <marrow/allocator.h>
 #include <marrow/webgpu_utils.h>
 #define RIPPLE_IMPLEMENTATION
 #include <ripple/ripple.h>
@@ -21,7 +22,17 @@ struct {
     f32 dt_accum;
     f32 avg_fps;
     u32 dt_n_samples;
+
+    BumpAllocator frame_allocator;
 } game;
+
+void render_debug_info(void)
+{
+    RIPPLE( FORM( .width = RELATIVE(1.0f, SVT_RELATIVE_CHILD), .height = RELATIVE(1.0f, SVT_RELATIVE_CHILD)), RECTANGLE( .color = { 0x2e2e2e }))
+    {
+        text(mrw_format("hello! you are running at {} fps.", (Allocator*)&game.frame_allocator, game.avg_fps));
+    }
+}
 
 void main_loop(void* _)
 {
@@ -37,11 +48,7 @@ void main_loop(void* _)
     }
     game.prev_time = now;
 
-    RIPPLE( RECTANGLE( .color = { STATE().is_held ? 0xff0000 : 0xff00ff }));
-    char buffer[1024] = { 0 }; s8 str = array_slice(buffer);
-    mrw_format_slice("hello! you are running at {} fps.", str, game.avg_fps);
-    text(str);
-    RIPPLE( RECTANGLE( .color = { STATE().hovered ? 0x0000ff : 0xff00ff }));
+    render_debug_info();
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(renderer.device, &(WGPUCommandEncoderDescriptor) { .label = WEBGPU_STR("Command encoder")  });
 
@@ -64,7 +71,7 @@ void main_loop(void* _)
                 .view = surface_texture_view,
                 .loadOp = WGPULoadOp_Clear,
                 .storeOp = WGPUStoreOp_Store,
-                .clearValue = (WGPUColor){ .09f, .192f, .243f, 1.0f },
+                .clearValue = (WGPUColor){ 9.0f / 255.0f, 99.0f / 255.0f, 126.0f / 255.0f, 1.0f },
                 .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED
             }
         });
@@ -88,9 +95,11 @@ void main_loop(void* _)
 
     wgpuTextureViewRelease(surface_texture_view);
     wgpuTextureRelease(surface_texture.texture);
+
+    bump_allocator_reset(&game.frame_allocator);
 }
 
-int main(void)
+void init_renderer(void)
 {
     renderer.instance = wgpuCreateInstance(nullptr);
     if (!renderer.instance) mrw_error("Failed to create WebGPU instance.");
@@ -136,6 +145,17 @@ int main(void)
     });
     ripple_make_active_context(&renderer.ripple_context);
     ripple_emscripten_register_callbacks(&renderer.ripple_context, "#canvas");
+}
+
+void init_game(void)
+{
+    game.frame_allocator = bump_allocator_create();
+}
+
+int main(void)
+{
+    init_renderer();
+    init_game();
 
     emscripten_set_main_loop_arg(main_loop, nullptr, 0, true);
 

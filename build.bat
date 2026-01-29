@@ -13,10 +13,7 @@ if "%configuration%"=="release" (
 set build_dir=build\%configuration%
 
 if exist "%build_dir%" (
-    if exist "build_old" (
-        rmdir /s /q "build_old"
-    )
-    move "%build_dir%" "build_old"
+    rmdir /s /q "build"
 )
 mkdir %build_dir%
 
