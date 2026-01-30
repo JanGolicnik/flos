@@ -17,4 +17,4 @@ if exist "%build_dir%" (
 )
 mkdir %build_dir%
 
-emcmake cmake -B %build_dir% -DCMAKE_BUILD_TYPE=%BUILD_TYPE%
+cmake -B %build_dir% -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DWEBGPU_BACKEND=DAWN

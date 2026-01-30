@@ -12,7 +12,7 @@ if not exist %build_dir% (
    build.bat %configuration%
 )
 
-copy /Y "res" %build_dir%\
+xcopy res %build_dir%\res /e /y /I /H
 
 cd %build_dir%
 

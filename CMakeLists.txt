@@ -25,6 +25,11 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(cglm marrow printccy ripple)
 
+if (NOT EMSCRIPTEN)
+    add_subdirectory(glfw)
+    add_subdirectory(webgpu)
+endif()
+
 set(SOURCES main.c)
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -pedantic -Wall -Wextra -Werror -Wno-missing-field-initializers -Wno-unused-parameter -Wno-unused-function -Wno-bitfield-constant-conversion -Wno-misleading-indentation")
 
@@ -49,11 +54,22 @@ if (EMSCRIPTEN)
     )
 
     set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")
-endif()
 
-target_link_libraries(${PROJECT_NAME}
-    cglm
-    marrow
-    printccy
-    ripple
-)
+    target_link_libraries(${PROJECT_NAME}
+        cglm
+        marrow
+        printccy
+        ripple
+    )
+else()
+    target_link_libraries(${PROJECT_NAME}
+        cglm
+        marrow
+        printccy
+        ripple
+        webgpu
+        glfw
+    )
+
+    target_copy_webgpu_binaries(${PROJECT_NAME})
+endif()
