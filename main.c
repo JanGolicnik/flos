@@ -1,3 +1,4 @@
+#include <float.h>
 #ifdef __EMSCRIPTEN__
     #include <emscripten.h>
 #else
@@ -97,11 +98,44 @@ struct {
     RippleContext ripple_context;
 } renderer;
 
+typedef enum {
+    KEY_UNKNOWN = 0,
+    KEY_W = 1,
+    KEY_A = 2,
+    KEY_S = 3,
+    KEY_D = 4,
+    KEY_SPACE = 5,
+    KEY_SHIFT = 6,
+    KEY_CTRL = 7,
+    KEY_ESC = 8,
+
+    KEY_LAST,
+
+    KEY_PRESSED = 0,
+    KEY_HELD = 1,
+    KEY_RELEASED = 2
+} Key;
+
 struct {
     f32 prev_time;
+    f32 dt;
     f32 dt_accum;
     f32 avg_fps;
     u32 dt_n_samples;
+
+    struct {
+        f32 dx, dy;
+        bool has_lock;
+        bool left;
+    } mouse;
+
+    struct {
+       vec3s rot;
+       vec3s pos;
+       vec3s vel;
+    } camera;
+
+    bool keys[3][KEY_LAST];
 
     BumpAllocator frame_allocator;
 } game;
@@ -111,38 +145,28 @@ void render_debug_info(void)
     RIPPLE( FORM( .width = PERCENT(1.0f, SVT_RELATIVE_CHILD), .height = PERCENT(1.0f, SVT_RELATIVE_CHILD)), RECTANGLE( .color = { 0x2e2e2e }))
     {
         text(mrw_format("hello! you are running at {} fps.", (Allocator*)&game.frame_allocator, game.avg_fps));
+        if (button(str("alo")))
+        {
+            mrw_debug("alo");
+        }
     }
 }
 
-void main_loop(void* _)
+void update(void)
 {
-    f32 time =
-    #ifdef __EMSCRIPTEN__
-        emscripten_get_now() * 0.001;
-    #else
-        glfwGetTime();
-    #endif
-    f32 dt = time - game.prev_time;
-    game.dt_accum += dt;
-    game.dt_n_samples += 1;
-    if (game.dt_accum > 0.3f)
-    {
-        game.avg_fps = (f32)game.dt_n_samples / game.dt_accum;
-        game.dt_accum -= 0.3f;
-        game.dt_n_samples = 0;
-    }
-    game.prev_time = time;
+    game.camera.rot.x = clamp(game.camera.rot.x + game.mouse.dy * 0.01, to_rad(-89.0), to_rad(89.0));
+    game.camera.rot.y += game.mouse.dx * 0.01;
+    vec3s movement = {
+        .x = game.keys[KEY_HELD][KEY_A] - game.keys[KEY_HELD][KEY_D],
+        .z = game.camera.vel.z = game.keys[KEY_HELD][KEY_W] - game.keys[KEY_HELD][KEY_S]
+    };
 
-    render_debug_info();
+    game.camera.vel = glms_vec3_rotate_m4(glms_rotate_make(-game.camera.rot.y, GLMS_YUP), movement);
+    game.camera.pos = glms_vec3_add(game.camera.pos, glms_vec3_scale(game.camera.vel, game.dt));
+}
 
-    {
-        f32 zoom = 5.0f;
-        renderer.shader_data.data.camera_position = (vec3s){ .x = sin(time) * 40.0f, .y = 40.0f, .z = cos(time) * 40.0f};
-        mat4s proj = glms_ortho(-zoom, +zoom, -zoom, +zoom, 0.1f, 1000.0f);
-        mat4s view = glms_lookat(renderer.shader_data.data.camera_position, (vec3s){ .x = 0.0f, .y = 2.0f, .z = 0.0f}, GLMS_YUP );
-        glm_mat4_copy(glms_mat4_mul(proj, view).raw, renderer.shader_data.data.camera_matrix);
-    }
-
+void render(void)
+{
     wgpuQueueWriteBuffer(renderer.queue, renderer.shader_data.buffer, 0, &renderer.shader_data.data, sizeof(renderer.shader_data.data));
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(renderer.device, &(WGPUCommandEncoderDescriptor) { .label = WEBGPU_STR("Command encoder")  });
@@ -203,11 +227,63 @@ void main_loop(void* _)
     wgpuTextureViewRelease(surface_texture_view);
     wgpuTextureRelease(surface_texture.texture);
 
-    bump_allocator_reset(&game.frame_allocator);
+    #ifndef __EMSCRIPTEN__
+        wgpuSurfacePresent(renderer.surface);
+    #endif
+}
 
-#ifndef __EMSCRIPTEN__
-    wgpuSurfacePresent(renderer.surface);
-#endif
+void update_input(void)
+{
+    for (i32 i = 1; i < (i32)KEY_LAST; i++)
+    {
+        if (game.keys[KEY_PRESSED][i])
+            game.keys[KEY_HELD][i] = true;
+        if (game.keys[KEY_RELEASED][i])
+            game.keys[KEY_HELD][i] = false;
+        game.keys[KEY_PRESSED][i] = false;
+        game.keys[KEY_RELEASED][i] = false;
+    }
+}
+
+void main_loop(void* _)
+{
+    f32 time =
+    #ifdef __EMSCRIPTEN__
+        emscripten_get_now() * 0.001;
+    #else
+        glfwGetTime();
+    #endif
+    game.dt = time - game.prev_time;
+    game.dt_accum += game.dt;
+    game.dt_n_samples += 1;
+    if (game.dt_accum > 0.3f)
+    {
+        game.avg_fps = (f32)game.dt_n_samples / game.dt_accum;
+        game.dt_accum -= 0.3f;
+        game.dt_n_samples = 0;
+    }
+    game.prev_time = time;
+
+    update_input();
+    update();
+
+    render_debug_info();
+    if (!CURSOR().consumed && CURSOR().left.pressed)
+    {
+        emscripten_request_pointerlock("#canvas", EM_TRUE);
+    }
+    game.mouse.dx = 0.0f;
+    game.mouse.dy = 0.0f;
+
+    {
+        mat4s proj = glms_perspective(to_rad(90.0f), 1.0f, 0.01f, 1000.0f);
+        mat4s view = glms_translate(glms_euler_xyz(game.camera.rot), game.camera.pos);
+        glm_mat4_copy(glms_mat4_mul(proj, view).raw, renderer.shader_data.data.camera_matrix);
+    }
+
+    render();
+
+    bump_allocator_reset(&game.frame_allocator);
 }
 
 void init_renderer(void)
@@ -416,11 +492,50 @@ void init_game(void)
     game.frame_allocator = bump_allocator_create();
 }
 
-int main(void)
+bool on_mouse_move(int type, const EmscriptenMouseEvent* event, void* user)
 {
-    init_renderer();
-    init_game();
+    if (game.mouse.has_lock)
+    {
+        if (type == EMSCRIPTEN_EVENT_MOUSEMOVE)
+        {
+            game.mouse.dx = (f32)event->movementX;
+            game.mouse.dy = (f32)event->movementY;
+        }
+        else if (type == EMSCRIPTEN_EVENT_MOUSEDOWN)
+        {
+            game.mouse.left = true;
+        }
+        else if (type == EMSCRIPTEN_EVENT_MOUSEUP)
+        {
+            game.mouse.left = false;
+        }
+        return true;
+    }
+    return ripple_emscripten_mouse_callback(type, event, user);
+}
 
+bool on_key(int type, const EmscriptenKeyboardEvent* event, void* user)
+{
+    if (!game.mouse.has_lock) return false;
+    if (type != EMSCRIPTEN_EVENT_KEYPRESS && type != EMSCRIPTEN_EVENT_KEYUP) return false;
+    i32 state = type == EMSCRIPTEN_EVENT_KEYPRESS ? KEY_PRESSED : KEY_RELEASED;
+    Key key = KEY_UNKNOWN;
+    if (!str_cmp(event->code, "KeyW")) key = KEY_W;
+    else if (!str_cmp(event->code, "KeyA")) key = KEY_A;
+    else if (!str_cmp(event->code, "KeyS")) key = KEY_S;
+    else if (!str_cmp(event->code, "KeyD")) key = KEY_D;
+    game.keys[state][key] = true;
+    return true;
+}
+
+bool on_pointerlock_change(int type, const EmscriptenPointerlockChangeEvent* event, void* user)
+{
+    game.mouse.has_lock = event->isActive;
+    return true;
+}
+
+void init_misc(void)
+{
     renderer.ripple_context = ripple_initialize((RippleBackendRendererConfig){
         .device = renderer.device,
         .queue = renderer.queue,
@@ -430,9 +545,24 @@ int main(void)
 
 #ifdef __EMSCRIPTEN__
     ripple_emscripten_register_callbacks(&renderer.ripple_context, "#canvas");
-    emscripten_set_main_loop_arg(main_loop, nullptr, 0, true);
+    emscripten_set_mousemove_callback("#canvas", &renderer.ripple_context, EM_TRUE, on_mouse_move);
+    emscripten_set_keypress_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, &renderer.ripple_context, EM_TRUE, on_key);
+    emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, &renderer.ripple_context, EM_TRUE, on_key);
+    emscripten_set_pointerlockchange_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, nullptr, EM_TRUE, on_pointerlock_change);
 #else
     ripple_glfw_register_callbacks(&renderer.ripple_context, renderer.window);
+#endif
+}
+
+int main(void)
+{
+    init_renderer();
+    init_game();
+    init_misc();
+
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop_arg(main_loop, nullptr, 0, true);
+#else
     while (!glfwWindowShouldClose(renderer.window))
     {
         glfwPollEvents();
