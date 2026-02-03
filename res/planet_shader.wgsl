@@ -10,16 +10,24 @@ struct VertexInput {
     @location(1) normal: vec3f,
 };
 
+struct InstanceInput {
+    @location(2) radius: f32,
+    @location(3) position: vec3f,
+};
+
 struct VertexOutput{
     @builtin(position) position: vec4f,
     @location(0) normal: vec3f,
 };
 
 @vertex
-fn vs_main(v: VertexInput, @builtin(vertex_index) index: u32) -> VertexOutput {
+fn vs_main(v: VertexInput, i: InstanceInput) -> VertexOutput {
+    var pos = v.position.xyz * i.radius;
+    pos += i.position;
+
     var out: VertexOutput;
     out.normal = v.normal;
-    out.position = shader_data.camera_matrix * vec4f(v.position.xyz, 1.0f);
+    out.position = shader_data.camera_matrix * vec4f(pos.xyz, 1.0f);
     return out;
 }
 

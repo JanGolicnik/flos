@@ -21,6 +21,12 @@ STRUCT(Vertex)
     vec3s normal;
 };
 
+STRUCT(PlanetInstance)
+{
+    f32 radius;
+    vec3s pos;
+};
+
 Vertex icosahedron_vertices[] = {
     { .position = {{ 0.000000, -1.000000,  0.000000 }} },
     { .position = {{ 0.723600, -0.447215,  0.525720 }} },
@@ -59,45 +65,6 @@ u16 icosahedron_indices[] = {
     10, 9, 11,
 };
 
-struct {
-    u32 width, height;
-
-    WGPUInstance instance;
-    WGPUAdapter adapter;
-    WGPUDevice device;
-    WGPUQueue queue;
-    WGPUSurface surface;
-    WGPUTextureFormat surface_format;
-
-    WGPURenderPipeline pipeline;
-
-    struct {
-        WGPUBindGroupLayout layout;
-        WGPUBindGroup bind_group;
-        WGPUBuffer buffer;
-        struct {
-            mat4 camera_matrix;
-            vec3s camera_position;
-            f32 time;
-        } data;
-    } shader_data;
-
-    struct {
-        WGPUTexture texture;
-        WGPUTextureView view;
-        WGPUExtent3D extent;
-    } depth;
-
-    WGPUBuffer vertex_buffer;
-    WGPUBuffer index_buffer;
-
-#ifndef __EMSCRIPTEN__
-    GLFWwindow* window;
-#endif
-
-    RippleContext ripple_context;
-} renderer;
-
 typedef enum {
     KEY_UNKNOWN = 0,
     KEY_W = 1,
@@ -117,6 +84,53 @@ typedef enum {
 } Key;
 
 struct {
+    u32 width, height;
+
+    WGPUInstance instance;
+    WGPUAdapter adapter;
+    WGPUDevice device;
+    WGPUQueue queue;
+    WGPUSurface surface;
+    WGPUTextureFormat surface_format;
+
+    struct {
+        WGPUBindGroupLayout layout;
+        WGPUBindGroup bind_group;
+        WGPUBuffer buffer;
+        struct {
+            mat4 camera_matrix;
+            vec3s camera_position;
+            f32 time;
+        } data;
+    } shader_data;
+
+    struct {
+        WGPUTexture texture;
+        WGPUTextureView view;
+        WGPUExtent3D extent;
+    } depth;
+
+    struct {
+        WGPURenderPipeline pipeline;
+        WGPUBuffer vertex_buffer;
+        WGPUBuffer index_buffer;
+        WGPUDynamicBuffer instance_buffer;
+    } planets;
+
+#ifndef __EMSCRIPTEN__
+    GLFWwindow* window;
+#endif
+    RippleContext ripple_context;
+} renderer;
+
+STRUCT(Planet)
+{
+    f32 gravity;
+    f32 radius;
+    vec3s pos;
+};
+
+struct {
     f32 prev_time;
     f32 dt;
     f32 dt_accum;
@@ -128,46 +142,123 @@ struct {
         bool has_lock;
         bool left;
     } mouse;
+    bool keys[3][KEY_LAST];
 
     struct {
-       vec3s rot;
-       vec3s pos;
-       vec3s vel;
-    } camera;
+        f32 yaw;
+        f32 pitch;
+        vec3s pos;
+        vec3s local_vel;
+        vec3s vel;
+        mat4s view;
+        vec3s forward;
+        bool onground;
+        u32 current_planet;
+    } player;
 
-    bool keys[3][KEY_LAST];
+    Planet planets[8];
+    u32 n_planets;
 
     BumpAllocator frame_allocator;
 } game;
 
-void render_debug_info(void)
+void game_update_player(void)
 {
-    RIPPLE( FORM( .width = PERCENT(1.0f, SVT_RELATIVE_CHILD), .height = PERCENT(1.0f, SVT_RELATIVE_CHILD)), RECTANGLE( .color = { 0x2e2e2e }))
+    game.player.current_planet = button(str("planet1")) ? 1 : 0;
+    Planet planet = game.planets[game.player.current_planet];
+
+    f32 yaw_change = -game.mouse.dx * 0.01;
+    game.player.pitch = clamp(game.player.pitch + game.mouse.dy * 0.01, to_rad(-89.0), to_rad(89.0));
+    game.player.yaw += yaw_change;
+    game.player.local_vel.x = game.keys[KEY_HELD][KEY_A] - game.keys[KEY_HELD][KEY_D];
+    game.player.local_vel.z = game.keys[KEY_HELD][KEY_W] - game.keys[KEY_HELD][KEY_S];
+    if (game.player.onground)
     {
-        text(mrw_format("hello! you are running at {} fps.", (Allocator*)&game.frame_allocator, game.avg_fps));
-        if (button(str("alo")))
-        {
-            mrw_debug("alo");
-        }
+        game.player.local_vel.y = max(game.player.local_vel.y, 0.0f);
+        if (game.keys[KEY_HELD][KEY_SPACE]) game.player.local_vel.y = 1.0f;
     }
+    else
+    {
+        game.player.local_vel.y += planet.gravity * game.dt;
+    }
+
+    vec3s up = glms_normalize(glms_vec3_sub(game.player.pos, planet.pos));
+    mat4s yaw_mat = glms_rotate_make(yaw_change, up);
+    vec3s forward = game.player.forward;
+    forward = glms_vec3_sub(forward, glms_vec3_scale(up, glms_dot(forward, up)));
+    forward = glms_vec3_rotate_m4(yaw_mat, forward);
+    vec3s right = glms_cross(up, forward);
+    mat4s pitch_mat = glms_rotate_make(game.player.pitch, right);
+
+    game.player.vel = glms_vec3_add(
+        glms_vec3_add(
+            glms_vec3_scale(right, game.player.local_vel.x),
+            glms_vec3_scale(up, game.player.local_vel.y)
+        ),
+        glms_vec3_scale(forward, game.player.local_vel.z)
+    );
+    game.player.pos = glms_vec3_add(game.player.pos, glms_vec3_scale(game.player.vel, game.dt));
+
+    up = glms_normalize(glms_vec3_sub(game.player.pos, planet.pos));
+    f32 height = glms_vec3_distance(planet.pos, game.player.pos);
+    game.player.onground = height <= planet.radius + 0.1f;
+    game.player.pos = glms_vec3_add(planet.pos, glms_vec3_scale(up, max(height, planet.radius)));
+
+    game.player.forward = forward;
+    forward = glms_vec3_rotate_m4(pitch_mat, forward);
+    game.player.view = glms_look(game.player.pos, forward, up);
 }
 
-void update(void)
+void game_update_input(void)
 {
-    game.camera.rot.x = clamp(game.camera.rot.x + game.mouse.dy * 0.01, to_rad(-89.0), to_rad(89.0));
-    game.camera.rot.y += game.mouse.dx * 0.01;
-    vec3s movement = {
-        .x = game.keys[KEY_HELD][KEY_A] - game.keys[KEY_HELD][KEY_D],
-        .z = game.camera.vel.z = game.keys[KEY_HELD][KEY_W] - game.keys[KEY_HELD][KEY_S]
-    };
+    for (i32 i = 1; i < (i32)KEY_LAST; i++)
+    {
+        if (game.keys[KEY_PRESSED][i])
+            game.keys[KEY_HELD][i] = true;
+        if (game.keys[KEY_RELEASED][i])
+            game.keys[KEY_HELD][i] = false;
+        game.keys[KEY_PRESSED][i] = false;
+        game.keys[KEY_RELEASED][i] = false;
+    }
 
-    game.camera.vel = glms_vec3_rotate_m4(glms_rotate_make(-game.camera.rot.y, GLMS_YUP), movement);
-    game.camera.pos = glms_vec3_add(game.camera.pos, glms_vec3_scale(game.camera.vel, game.dt));
+    if (!CURSOR().consumed && CURSOR().left.pressed)
+    {
+        emscripten_request_pointerlock("#canvas", EM_TRUE);
+    }
+
+    game.mouse.dx = 0.0f;
+    game.mouse.dy = 0.0f;
+}
+
+void game_update(void)
+{
+    text(mrw_format("hello! you are running at {} fps.", (Allocator*)&game.frame_allocator, game.avg_fps));
+    game_update_player();
+    game_update_input();
+}
+
+void render_prepare(void)
+{
+    // shader data
+    mat4s proj = glms_perspective(to_rad(90.0f), 1.0f, 0.01f, 1000.0f);
+    glm_mat4_copy(glms_mat4_mul(proj, game.player.view).raw, renderer.shader_data.data.camera_matrix);
+
+    wgpuQueueWriteBuffer(renderer.queue, renderer.shader_data.buffer, 0, &renderer.shader_data.data, sizeof(renderer.shader_data.data));
+
+    // planets
+    wgpuDeviceDynamicBufferEnsure(renderer.device, &renderer.planets.instance_buffer, 8);
+    PlanetInstance instances[game.n_planets];
+    for (u32 i = 0; i < game.n_planets; i++)
+    {
+        instances[i].radius = game.planets[i].radius;
+        instances[i].pos = game.planets[i].pos;
+    }
+    wgpuQueueWriteBuffer(renderer.queue,  renderer.planets.instance_buffer.data, 0, &instances, array_size(instances));
 }
 
 void render(void)
 {
-    wgpuQueueWriteBuffer(renderer.queue, renderer.shader_data.buffer, 0, &renderer.shader_data.data, sizeof(renderer.shader_data.data));
+    render_prepare();
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(renderer.device, &(WGPUCommandEncoderDescriptor) { .label = WEBGPU_STR("Command encoder")  });
 
@@ -201,11 +292,12 @@ void render(void)
             }
         });
 
-        wgpuRenderPassEncoderSetPipeline(render_pass, renderer.pipeline);
-        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, renderer.vertex_buffer, 0, wgpuBufferGetSize(renderer.vertex_buffer));
-        wgpuRenderPassEncoderSetIndexBuffer(render_pass, renderer.index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(renderer.index_buffer));
+        wgpuRenderPassEncoderSetPipeline(render_pass, renderer.planets.pipeline);
+        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, renderer.planets.vertex_buffer, 0, wgpuBufferGetSize(renderer.planets.vertex_buffer));
+        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, renderer.planets.instance_buffer.data, 0, wgpuBufferGetSize(renderer.planets.instance_buffer.data));
+        wgpuRenderPassEncoderSetIndexBuffer(render_pass, renderer.planets.index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(renderer.planets.index_buffer));
         wgpuRenderPassEncoderSetBindGroup(render_pass, 0, renderer.shader_data.bind_group, 0, nullptr);
-        wgpuRenderPassEncoderDrawIndexed(render_pass, array_len(icosahedron_indices), 1, 0, 0, 0);
+        wgpuRenderPassEncoderDrawIndexed(render_pass, array_len(icosahedron_indices), game.n_planets, 0, 0, 0);
 
         wgpuRenderPassEncoderEnd(render_pass);
         wgpuRenderPassEncoderRelease(render_pass);
@@ -232,19 +324,6 @@ void render(void)
     #endif
 }
 
-void update_input(void)
-{
-    for (i32 i = 1; i < (i32)KEY_LAST; i++)
-    {
-        if (game.keys[KEY_PRESSED][i])
-            game.keys[KEY_HELD][i] = true;
-        if (game.keys[KEY_RELEASED][i])
-            game.keys[KEY_HELD][i] = false;
-        game.keys[KEY_PRESSED][i] = false;
-        game.keys[KEY_RELEASED][i] = false;
-    }
-}
-
 void main_loop(void* _)
 {
     f32 time =
@@ -254,8 +333,7 @@ void main_loop(void* _)
         glfwGetTime();
     #endif
     game.dt = time - game.prev_time;
-    game.dt_accum += game.dt;
-    game.dt_n_samples += 1;
+    game.dt_accum += game.dt; game.dt_n_samples += 1;
     if (game.dt_accum > 0.3f)
     {
         game.avg_fps = (f32)game.dt_n_samples / game.dt_accum;
@@ -264,29 +342,15 @@ void main_loop(void* _)
     }
     game.prev_time = time;
 
-    update_input();
-    update();
-
-    render_debug_info();
-    if (!CURSOR().consumed && CURSOR().left.pressed)
+    RIPPLE( FORM( .width = PERCENT(1.0f, SVT_RELATIVE_CHILD), .height = PERCENT(1.0f, SVT_RELATIVE_CHILD)), RECTANGLE( .color = { 0x2e2e2e }))
     {
-        emscripten_request_pointerlock("#canvas", EM_TRUE);
+        game_update();
     }
-    game.mouse.dx = 0.0f;
-    game.mouse.dy = 0.0f;
-
-    {
-        mat4s proj = glms_perspective(to_rad(90.0f), 1.0f, 0.01f, 1000.0f);
-        mat4s view = glms_translate(glms_euler_xyz(game.camera.rot), game.camera.pos);
-        glm_mat4_copy(glms_mat4_mul(proj, view).raw, renderer.shader_data.data.camera_matrix);
-    }
-
     render();
-
     bump_allocator_reset(&game.frame_allocator);
 }
 
-void init_renderer(void)
+void render_init(void)
 {
 #ifndef __EMSCRIPTEN__
     glfwInit();
@@ -368,11 +432,11 @@ void init_renderer(void)
         });
     }
 
-    FILE *fp = fopen("./res/shader.wgsl", "rb");
+    FILE *fp = fopen("./res/planet_shader.wgsl", "rb");
     fseek(fp, 0, SEEK_END);
     u64 len = ftell(fp);
     fseek(fp, 0, SEEK_SET);
-    char shader_code[len];
+    char shader_code[len + 1];
     fread(shader_code, 1, len, fp);
     shader_code[len] = 0;
     fclose(fp);
@@ -390,13 +454,13 @@ void init_renderer(void)
         .bindGroupLayouts = (WGPUBindGroupLayout[]) { renderer.shader_data.layout }
     });
 
-    renderer.pipeline = wgpuDeviceCreateRenderPipeline(renderer.device, &(WGPURenderPipelineDescriptor) {
-        .label = WEBGPU_STR("main pipeline"),
+    renderer.planets.pipeline = wgpuDeviceCreateRenderPipeline(renderer.device, &(WGPURenderPipelineDescriptor) {
+        .label = WEBGPU_STR("planet shader"),
         .layout = layout,
         .vertex = {
             .module = shader_module,
             .entryPoint = WEBGPU_STR("vs_main"),
-            .bufferCount = 1,
+            .bufferCount = 2,
             .buffers = (WGPUVertexBufferLayout[]) {
                 {
                     .arrayStride = sizeof(Vertex),
@@ -412,6 +476,23 @@ void init_renderer(void)
                             .shaderLocation = 1,
                             .format = WGPUVertexFormat_Float32x3,
                             .offset = offsetof(Vertex, normal)
+                        }
+                    }
+                },
+                {
+                    .arrayStride = sizeof(PlanetInstance),
+                    .stepMode = WGPUVertexStepMode_Instance,
+                    .attributeCount = 2,
+                    .attributes = (WGPUVertexAttribute[]) {
+                        {
+                            .shaderLocation = 2,
+                            .format = WGPUVertexFormat_Float32,
+                            .offset = offsetof(PlanetInstance, radius)
+                        },
+                        {
+                            .shaderLocation = 3,
+                            .format = WGPUVertexFormat_Float32x3,
+                            .offset = offsetof(PlanetInstance, pos)
                         }
                     }
                 }
@@ -456,17 +537,19 @@ void init_renderer(void)
         v->position = v->normal = glms_vec3_normalize(v->position);
     }
 
-    renderer.vertex_buffer = wgpuDeviceCreateBuffer(renderer.device, &(WGPUBufferDescriptor) {
+    renderer.planets.vertex_buffer = wgpuDeviceCreateBuffer(renderer.device, &(WGPUBufferDescriptor) {
         .size = array_size(icosahedron_vertices),
         .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex
     });
-    wgpuQueueWriteBuffer(renderer.queue, renderer.vertex_buffer, 0, &icosahedron_vertices, array_size(icosahedron_vertices));
+    wgpuQueueWriteBuffer(renderer.queue, renderer.planets.vertex_buffer, 0, &icosahedron_vertices, array_size(icosahedron_vertices));
 
-    renderer.index_buffer = wgpuDeviceCreateBuffer(renderer.device, &(WGPUBufferDescriptor) {
+    renderer.planets.index_buffer = wgpuDeviceCreateBuffer(renderer.device, &(WGPUBufferDescriptor) {
         .size = array_size(icosahedron_indices),
         .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index
     });
-    wgpuQueueWriteBuffer(renderer.queue, renderer.index_buffer, 0, &icosahedron_indices, array_size(icosahedron_indices));
+    wgpuQueueWriteBuffer(renderer.queue, renderer.planets.index_buffer, 0, &icosahedron_indices, array_size(icosahedron_indices));
+
+    renderer.planets.instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, sizeof(PlanetInstance), WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex);
 
     renderer.depth.extent = (WGPUExtent3D){ .width = renderer.width, .height = renderer.height, .depthOrArrayLayers = 1 };
     renderer.depth.texture = wgpuDeviceCreateTexture(renderer.device, &(WGPUTextureDescriptor){
@@ -487,9 +570,24 @@ void init_renderer(void)
         });
 }
 
-void init_game(void)
+void game_init(void)
 {
     game.frame_allocator = bump_allocator_create();
+    game.player.pos.y = 1.0f;
+    game.player.forward.z = 1.0f;
+    game.player.current_planet = 0;
+
+    game.n_planets = 0;
+    game.planets[game.n_planets++] = (Planet){
+        .gravity = -2.0f ,
+        .radius = 1.0f,
+        .pos = { .x = 0.0f, .y = 0.0f, .z = 0.0f }
+    };
+    game.planets[game.n_planets++] = (Planet){
+        .gravity = -2.0f ,
+        .radius = 2.0f,
+        .pos = { .x = 5.0f, .y = 5.0f, .z = 5.0f }
+    };
 }
 
 bool on_mouse_move(int type, const EmscriptenMouseEvent* event, void* user)
@@ -524,6 +622,7 @@ bool on_key(int type, const EmscriptenKeyboardEvent* event, void* user)
     else if (!str_cmp(event->code, "KeyA")) key = KEY_A;
     else if (!str_cmp(event->code, "KeyS")) key = KEY_S;
     else if (!str_cmp(event->code, "KeyD")) key = KEY_D;
+    else if (!str_cmp(event->code, "Space")) key = KEY_SPACE;
     game.keys[state][key] = true;
     return true;
 }
@@ -534,7 +633,7 @@ bool on_pointerlock_change(int type, const EmscriptenPointerlockChangeEvent* eve
     return true;
 }
 
-void init_misc(void)
+void misc_init(void)
 {
     renderer.ripple_context = ripple_initialize((RippleBackendRendererConfig){
         .device = renderer.device,
@@ -556,9 +655,9 @@ void init_misc(void)
 
 int main(void)
 {
-    init_renderer();
-    init_game();
-    init_misc();
+    render_init();
+    game_init();
+    misc_init();
 
 #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop_arg(main_loop, nullptr, 0, true);
