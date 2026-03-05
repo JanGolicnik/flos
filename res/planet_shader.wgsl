@@ -22,9 +22,7 @@ struct VertexOutput{
 
 @vertex
 fn vs_main(v: VertexInput, i: InstanceInput) -> VertexOutput {
-    var pos = v.position.xyz * i.radius;
-    pos += i.position;
-
+    var pos = v.position.xyz * i.radius + i.position;
     var out: VertexOutput;
     out.normal = v.normal;
     out.position = shader_data.camera_matrix * vec4f(pos.xyz, 1.0f);

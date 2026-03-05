@@ -30,8 +30,25 @@ STRUCT(PlanetInstance)
 STRUCT(PlantInstance)
 {
     vec3s pos;
-    f32 radius;
-    f32 height;
+};
+
+STRUCT(PlantShape)
+{
+    vec3s start, end;
+    f32 width;
+};
+
+STRUCT(PlantData)
+{
+    WGPUBuffer vertex_buffer;
+    WGPUBuffer index_buffer;
+    WGPUDynamicBuffer instance_buffer;
+};
+
+STRUCT(Plant)
+{
+    PlantShape shapes[1024];
+    u32 n_shapes;
 };
 
 Vertex icosahedron_vertices[] = {
@@ -72,24 +89,6 @@ u16 icosahedron_indices[] = {
     10, 9, 11,
 };
 
-Vertex prism_vertices[] = {
-    { .position = {{ -0.5f, -0.5f, -0.288675f }}, .normal   = {{ -0.866025f, 0.0f, -0.5f }} },
-    { .position = {{  0.5f, -0.5f, -0.288675f }}, .normal   = {{  0.866025f, 0.0f, -0.5f }} },
-    { .position = {{  0.0f, -0.5f,  0.577350f }}, .normal   = {{  0.0f, 0.0f,  1.0f }} },
-    { .position = {{ -0.5f,  0.5f, -0.288675f }}, .normal   = {{ -0.866025f, 0.0f, -0.5f }} },
-    { .position = {{  0.5f,  0.5f, -0.288675f }}, .normal   = {{  0.866025f, 0.0f, -0.5f }} },
-    { .position = {{  0.0f,  0.5f,  0.577350f }}, .normal   = {{  0.0f, 0.0f,  1.0f }} },
-};
-
-u16 prism_indices[] = {
-    0, 1, 4,
-    0, 4, 3,
-    1, 2, 5,
-    1, 5, 4,
-    2, 0, 3,
-    2, 3, 5,
-};
-
 struct {
     u32 width, height;
 
@@ -126,9 +125,7 @@ struct {
 
     struct {
         WGPURenderPipeline pipeline;
-        WGPUBuffer vertex_buffer;
-        WGPUBuffer index_buffer;
-        WGPUDynamicBuffer instance_buffer;
+        PlantData data[1];
     } plants;
 
 #ifndef __EMSCRIPTEN__
@@ -142,13 +139,6 @@ STRUCT(Planet)
     f32 gravity;
     f32 radius;
     vec3s pos;
-};
-
-STRUCT(Plant)
-{
-    vec3s pos;
-    f32 radius;
-    f32 height;
 };
 
 typedef enum {
@@ -202,6 +192,8 @@ struct {
 
     Plant plants[1];
     u32 n_plants;
+    vec3s plant_positions[1];
+    u32 n_plant_positions;
 
     Planet planets[8];
     u32 n_planets;
@@ -211,8 +203,71 @@ struct {
 
 void subdivide(VertexSlice* vertices, u16* indices, u32* n_indices);
 
+f32 branch = 1.0f;
+PlantShape* plant_step(PlantShape prev, PlantShape* shapes, f32 angle, u32 gen)
+{
+    if (gen > 6) return shapes;
+    vec3s dir = glms_vec3_scale(glms_vec3_rotate(GLMS_YUP, angle, GLMS_ZUP), 1.0f / ((float)gen + 1.0f));
+    vec3s start = prev.end;
+    PlantShape shape = (PlantShape){ .start = start, .end = glms_vec3_add(start, dir), .width = .1f };
+    (*shapes++) = shape;
+    shapes = plant_step(shape, shapes, angle - branch, gen + 1);
+    shapes = plant_step(shape, shapes, angle + branch, gen + 1);
+    return shapes;
+}
+
+Plant plant_generate(void)
+{
+    Plant p = { 0 };
+    p.n_shapes = plant_step(p.shapes[0], p.shapes, 0.0f, 0) - p.shapes;
+    return p;
+}
+
+PlantData plant_meshify(Plant* plant)
+{
+    Vertex vertices[plant->n_shapes * 4];
+    u16 indices[plant->n_shapes * 6];
+    u32 vi = 0, ii = 0;
+    for (u32 i = 0; i < plant->n_shapes; i++)
+    {
+        PlantShape s = plant->shapes[i];
+        vec3s dir = glms_vec3_normalize(glms_vec3_sub(s.start, s.end));
+        vec3s right = fabsf(dir.y) > 0.995 ? (vec3s){ .x = 1.0f } : glms_vec3_normalize((vec3s){ .x = -dir.z, .z = dir.x });
+        right = glms_vec3_scale(right, 0.5f * s.width);
+        i32 r = vi;
+        vertices[vi++] = (Vertex){ .position = glms_vec3_add(s.start, right) };
+        vertices[vi++] = (Vertex){ .position = glms_vec3_add(s.end, right) };
+        vertices[vi++] = (Vertex){ .position = glms_vec3_sub(s.start, right) };
+        vertices[vi++] = (Vertex){ .position = glms_vec3_sub(s.end, right) };
+        indices[ii++] = r+0; indices[ii++] = r+1; indices[ii++] = r+2;
+        indices[ii++] = r+1; indices[ii++] = r+2; indices[ii++] = r+3;
+    }
+
+    PlantData data = {
+        .vertex_buffer = wgpuDeviceCreateBuffer(renderer.device, &(WGPUBufferDescriptor) {
+            .size = array_size(vertices),
+            .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex
+        }),
+        .index_buffer = wgpuDeviceCreateBuffer(renderer.device, &(WGPUBufferDescriptor) {
+            .size = array_size(indices),
+            .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index
+        }),
+        .instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, sizeof(PlantInstance), WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex)
+    };
+    wgpuQueueWriteBuffer(renderer.queue, data.vertex_buffer, 0, &vertices, array_size(vertices));
+    wgpuQueueWriteBuffer(renderer.queue, data.index_buffer, 0, &indices, array_size(indices));
+    return data;
+}
+
+void plant_free(u32 i)
+{
+    wgpuBufferRelease(renderer.plants.data[i].vertex_buffer);
+    wgpuBufferRelease(renderer.plants.data[i].index_buffer);
+}
+
 void game_update_player(void)
 {
+    text(mrw_format("pos: {.2f} {.2f} {.2f}", (Allocator*)&game.frame_allocator, game.player.pos.x, game.player.pos.y, game.player.pos.z));
     Planet planet = game.planets[game.player.current_planet];
 
     game.player.speed = game.keys[KEY_HELD][KEY_SHIFT] ? 2.0f : 1.0f;
@@ -271,7 +326,6 @@ void game_update_player(void)
             }
         }
     }
-
 }
 
 void game_update_collision(void)
@@ -287,6 +341,14 @@ void game_update_collision(void)
 
 void game_update_input(void)
 {
+    #ifndef __EMSCRIPTEN__
+    if (game.keys[KEY_PRESSED][KEY_ESC])
+    {
+        game.mouse.has_lock = false;
+        glfwSetInputMode(renderer.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    }
+    #endif
+
     for (i32 i = 1; i < (i32)KEY_LAST; i++)
     {
         if (game.keys[KEY_PRESSED][i])
@@ -299,9 +361,15 @@ void game_update_input(void)
 
     if (!CURSOR().consumed && CURSOR().left.pressed)
     {
-        emscripten_request_pointerlock("#canvas", EM_TRUE);
+        #ifdef __EMSCRIPTEN__
+            emscripten_request_pointerlock("#canvas", EM_TRUE);
+        #else
+            glfwSetInputMode(renderer.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            game.mouse.has_lock = true;
+        #endif
     }
 
+    text(mrw_format("mousedxdy: {.2f} {.2f}", (Allocator*)&game.frame_allocator, game.mouse.dx, game.mouse.dy));
     game.mouse.dx = 0.0f;
     game.mouse.dy = 0.0f;
 }
@@ -309,6 +377,14 @@ void game_update_input(void)
 void game_update(void)
 {
     text(mrw_format("hello! you are running at {} fps.", (Allocator*)&game.frame_allocator, game.avg_fps));
+
+    if (slider("hello !", &branch, 0.0f, 2.0f, (Allocator*)&game.frame_allocator))
+    {
+        plant_free(0);
+        game.plants[0] = plant_generate();
+        renderer.plants.data[0] = plant_meshify(&game.plants[0]);
+    }
+
     game_update_player();
     game_update_collision();
     game_update_input();
@@ -336,15 +412,13 @@ void render_prepare(void)
 
     // plants
     {
-        wgpuDeviceDynamicBufferEnsure(renderer.device, &renderer.plants.instance_buffer, 8);
-        PlantInstance instances[game.n_plants];
-        for (u32 i = 0; i < game.n_plants; i++)
+        wgpuDeviceDynamicBufferEnsure(renderer.device, &renderer.plants.data[0].instance_buffer, game.n_plant_positions);
+        PlantInstance instances[game.n_plant_positions];
+        for (u32 i = 0; i < game.n_plant_positions; i++)
         {
-            instances[i].pos = game.plants[i].pos;
-            instances[i].radius = game.plants[i].radius;
-            instances[i].height = game.plants[i].height;
+            instances[i].pos = game.plant_positions[i];
         }
-        wgpuQueueWriteBuffer(renderer.queue,  renderer.plants.instance_buffer.data, 0, &instances, array_size(instances));
+        wgpuQueueWriteBuffer(renderer.queue, renderer.plants.data[0].instance_buffer.data, 0, &instances, array_size(instances));
     }
 }
 
@@ -397,12 +471,16 @@ void render_plants(WGPUCommandEncoder encoder, WGPUTextureView surface_texture_v
             .depthStoreOp = WGPUStoreOp_Store
         }
     });
+
     wgpuRenderPassEncoderSetPipeline(render_pass, renderer.plants.pipeline);
-    wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, renderer.plants.vertex_buffer, 0, wgpuBufferGetSize(renderer.plants.vertex_buffer));
-    wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, renderer.plants.instance_buffer.data, 0, wgpuBufferGetSize(renderer.plants.instance_buffer.data));
-    wgpuRenderPassEncoderSetIndexBuffer(render_pass, renderer.plants.index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(renderer.plants.index_buffer));
     wgpuRenderPassEncoderSetBindGroup(render_pass, 0, renderer.shader_data.bind_group, 0, nullptr);
-    wgpuRenderPassEncoderDrawIndexed(render_pass, wgpuBufferGetSize(renderer.plants.index_buffer) / sizeof(prism_indices[0]), game.n_plants, 0, 0, 0);
+    for (u32 i = 0; i < game.n_plants; i++)
+    {
+        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, renderer.plants.data[i].vertex_buffer, 0, wgpuBufferGetSize(renderer.plants.data[i].vertex_buffer));
+        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, renderer.plants.data[i].instance_buffer.data, 0, wgpuBufferGetSize(renderer.plants.data[i].instance_buffer.data));
+        wgpuRenderPassEncoderSetIndexBuffer(render_pass,     renderer.plants.data[i].index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(renderer.plants.data[i].index_buffer));
+        wgpuRenderPassEncoderDrawIndexed(render_pass, wgpuBufferGetSize(renderer.plants.data[i].index_buffer) / sizeof(u16), 1, 0, 0, 0);
+    }
 
     wgpuRenderPassEncoderEnd(render_pass);
     wgpuRenderPassEncoderRelease(render_pass);
@@ -466,7 +544,7 @@ void main_loop(void* _)
     }
     game.prev_time = time;
 
-    RIPPLE( FORM( .width = PERCENT(1.0f, SVT_RELATIVE_CHILD), .height = PERCENT(1.0f, SVT_RELATIVE_CHILD)), RECTANGLE( .color = { 0x2e2e2e }))
+    RIPPLE( FORM( .width = PERCENT(1.0f, SVT_RELATIVE_CHILD), .height = PERCENT(1.0f, SVT_RELATIVE_CHILD)), RECTANGLE( .color = RIPPLE_RGBA(0x2e2e2ebf), .radiusBR = .15f))
     {
         game_update();
     }
@@ -624,22 +702,12 @@ void render_init_plants(void)
                 {
                     .arrayStride = sizeof(PlantInstance),
                     .stepMode = WGPUVertexStepMode_Instance,
-                    .attributeCount = 3,
+                    .attributeCount = 1,
                     .attributes = (WGPUVertexAttribute[]) {
                         {
                             .shaderLocation = 2,
-                            .format = WGPUVertexFormat_Float32,
+                            .format = WGPUVertexFormat_Float32x3,
                             .offset = offsetof(PlantInstance, pos)
-                        },
-                        {
-                            .shaderLocation = 3,
-                            .format = WGPUVertexFormat_Float32,
-                            .offset = offsetof(PlantInstance, radius)
-                        },
-                        {
-                            .shaderLocation = 4,
-                            .format = WGPUVertexFormat_Float32,
-                            .offset = offsetof(PlantInstance, height)
                         }
                     }
                 }
@@ -678,20 +746,6 @@ void render_init_plants(void)
 
     wgpuPipelineLayoutRelease(layout);
     wgpuShaderModuleRelease(shader_module);
-
-    renderer.plants.vertex_buffer = wgpuDeviceCreateBuffer(renderer.device, &(WGPUBufferDescriptor) {
-        .size = array_size(prism_vertices),
-        .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex
-    });
-    wgpuQueueWriteBuffer(renderer.queue, renderer.plants.vertex_buffer, 0, &prism_vertices, array_size(prism_vertices));
-
-    renderer.plants.index_buffer = wgpuDeviceCreateBuffer(renderer.device, &(WGPUBufferDescriptor) {
-        .size = array_size(prism_indices),
-        .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index
-    });
-    wgpuQueueWriteBuffer(renderer.queue, renderer.plants.index_buffer, 0, &prism_indices, array_size(prism_indices));
-
-    renderer.plants.instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, sizeof(PlantInstance), WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex);
 }
 
 void render_init(void)
@@ -802,31 +856,31 @@ void game_init(void)
 {
     game.frame_allocator = bump_allocator_create();
     game.player.pos.y = 1.0f;
+    game.player.pos.z = -0.5f;
     game.player.forward.z = 1.0f;
     game.player.current_planet = 0;
 
     game.n_planets = 0;
-    game.planets[game.n_planets++] = (Planet){
-        .gravity = -2.0f ,
-        .radius = 1.0f,
+    game.planets[game.n_planets++] = (Planet) {
+        .gravity = -2.0f, .radius = 1.0f,
         .pos = { .x = 0.0f, .y = 0.0f, .z = 0.0f }
     };
-    game.planets[game.n_planets++] = (Planet){
-        .gravity = -2.0f ,
-        .radius = 2.0f,
+    game.planets[game.n_planets++] = (Planet) {
+        .gravity = -2.0f, .radius = 2.0f,
         .pos = { .x = 5.0f, .y = 5.0f, .z = 5.0f }
     };
 
     game.n_plants = 0;
-    game.plants[game.n_plants++] = (Plant)
-    {
-        .pos = { .x = 0.0f, .y = 1.0f, .z = 0.0f },
-        .radius = .1f,
-        .height = 3.0f
-    };
+    game.plants[game.n_plants] = plant_generate();
+    renderer.plants.data[game.n_plants] = plant_meshify(&game.plants[game.n_plants]);
+    game.n_plants++;
+
+    game.n_plant_positions = 0;
+    game.plant_positions[game.n_plant_positions++] = (vec3s) { .y = 1.0f };
 }
 
-bool on_mouse(int type, const EmscriptenMouseEvent* event, void* user)
+#ifdef __EMSCRIPTEN__
+bool on_mouse(i32 type, const EmscriptenMouseEvent* event, void* user)
 {
     if (game.mouse.has_lock) {
         if (type == EMSCRIPTEN_EVENT_MOUSEMOVE) {
@@ -844,7 +898,7 @@ bool on_mouse(int type, const EmscriptenMouseEvent* event, void* user)
     return ripple_emscripten_mouse_callback(type, event, user);
 }
 
-bool on_key(int type, const EmscriptenKeyboardEvent* event, void* user)
+bool on_key(i32 type, const EmscriptenKeyboardEvent* event, void* user)
 {
     if (!game.mouse.has_lock) return false;
     if (event->repeat) return true;
@@ -861,11 +915,40 @@ bool on_key(int type, const EmscriptenKeyboardEvent* event, void* user)
     return true;
 }
 
-bool on_pointerlock_change(int type, const EmscriptenPointerlockChangeEvent* event, void* user)
+bool on_pointerlock_change(i32 type, const EmscriptenPointerlockChangeEvent* event, void* user)
 {
     game.mouse.has_lock = event->isActive;
     return true;
 }
+#else
+void on_mouse(GLFWwindow* window, f64 x, f64 y)
+{
+    static f64 prev_x = 0.0;
+    static f64 prev_y = 0.0;
+    if (game.mouse.has_lock)
+    {
+        game.mouse.dx = (f32)(x - prev_x);
+        game.mouse.dy = (f32)(y - prev_y);
+    }
+    prev_x = x; prev_y = y;
+    ripple_glfw_mouse_pos_callback(window, x, y);
+}
+
+void on_key(GLFWwindow* window, i32 key_code, i32 scancode, i32 action, i32 mods)
+{
+    if (!game.mouse.has_lock) return;
+    if (action == GLFW_REPEAT) return;
+    i32 state = action == GLFW_PRESS ? KEY_PRESSED : KEY_RELEASED;
+    Key key = KEY_UNKNOWN;
+    if (key_code == GLFW_KEY_W) key = KEY_W;
+    else if (key_code == GLFW_KEY_A) key = KEY_A;
+    else if (key_code == GLFW_KEY_S) key = KEY_S;
+    else if (key_code == GLFW_KEY_D) key = KEY_D;
+    else if (key_code == GLFW_KEY_SPACE) key = KEY_SPACE;
+    else if (key_code == GLFW_KEY_ESCAPE) key = KEY_ESC;
+    game.keys[state][key] = true;
+}
+#endif
 
 void misc_init(void)
 {
@@ -886,10 +969,12 @@ void misc_init(void)
     emscripten_set_pointerlockchange_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, nullptr, EM_TRUE, on_pointerlock_change);
 #else
     ripple_glfw_register_callbacks(&renderer.ripple_context, renderer.window);
+    glfwSetCursorPosCallback(renderer.window, &on_mouse);
+    glfwSetKeyCallback(renderer.window, &on_key);
 #endif
 }
 
-int main(void)
+i32 main(void)
 {
     render_init();
     game_init();
