@@ -2,7 +2,8 @@
 #ifdef __EMSCRIPTEN__
     #include <emscripten.h>
 #else
-    #include <glfw/glfw3.h>
+    #define GLFW_INCLUDE_NONE
+    #include <GLFW/glfw3.h>
 #endif
 
 #include <marrow/marrow.h>
@@ -751,6 +752,7 @@ void render_init_plants(void)
 void render_init(void)
 {
 #ifndef __EMSCRIPTEN__
+    glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
     glfwInit();
     renderer.window = glfwCreateWindow(800, 800, "hello!", nullptr, nullptr);
 #endif
@@ -934,6 +936,13 @@ void on_mouse(GLFWwindow* window, f64 x, f64 y)
     ripple_glfw_mouse_pos_callback(window, x, y);
 }
 
+void on_mouse_click(GLFWwindow* window, i32 button, i32 action, i32 mods)
+{
+    Key pressed = action == GLFW_PRESS ? KEY_PRESSED : KEY_RELEASED;
+    game.keys[pressed][KEY_M1 + button] = true;
+    ripple_glfw_mouse_button_callback(window, button, action, mods);
+}
+
 void on_key(GLFWwindow* window, i32 key_code, i32 scancode, i32 action, i32 mods)
 {
     if (!game.mouse.has_lock) return;
@@ -970,6 +979,7 @@ void misc_init(void)
 #else
     ripple_glfw_register_callbacks(&renderer.ripple_context, renderer.window);
     glfwSetCursorPosCallback(renderer.window, &on_mouse);
+    glfwSetMouseButtonCallback(renderer.window, &on_mouse_click);
     glfwSetKeyCallback(renderer.window, &on_key);
 #endif
 }
