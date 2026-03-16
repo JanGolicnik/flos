@@ -9,6 +9,7 @@
 #include <marrow/marrow.h>
 #include <marrow/allocator.h>
 #include <marrow/webgpu_utils.h>
+#include <marrow/json.h>
 #define RIPPLE_IMPLEMENTATION
 #include <ripple/ripple.h>
 #include <ripple/ripple_widgets.h>
@@ -44,6 +45,26 @@ STRUCT(PlantData)
     WGPUBuffer vertex_buffer;
     WGPUBuffer index_buffer;
     WGPUDynamicBuffer instance_buffer;
+};
+
+STRUCT(PlantConfig)
+{
+    struct {
+        u32 iterations;
+        char initial[128];
+        struct {
+            char name;
+            char result[128];
+        } rules[8];
+        u32 n_rules;
+    } rules;
+    struct {
+        char name;
+        f32 width;
+        f32 length;
+        f32 angle;
+    } shapes[8];
+    u32 n_shapes;
 };
 
 STRUCT(Plant)
@@ -264,6 +285,41 @@ void plant_free(u32 i)
 {
     wgpuBufferRelease(renderer.plants.data[i].vertex_buffer);
     wgpuBufferRelease(renderer.plants.data[i].index_buffer);
+}
+
+PlantConfig plant_parse_config(JsonObject json)
+{
+    PlantConfig config = { 0 };
+    for (json = json_first(json); json.val.type; json = json_next(json))
+    {
+        if (s8_cmp(json.label, str("rules")) == 0)
+        {
+            config.rules.iterations = json_find(json, str("iterations")).val.integer;
+            s8 initial = json_find(json, str("initial")).val.string;
+            buf_copy(config.rules.initial, initial.start, slice_size(initial));
+            JsonObject rules = json_find(json, str("rules"));
+            for (rules = json_first(rules); rules.val.type; rules = json_next(rules))
+            {
+                u32 i = config.rules.n_rules++;
+                config.rules.rules[i].name = rules.label.start[0];
+                s8 result = json_find(rules, str("result")).val.string;
+                buf_copy(config.rules.rules[i].result, result.start, slice_size(result));
+            }
+        }
+        else if (s8_cmp(json.label, str("shapes")) == 0)
+        {
+            JsonObject shapes = json;
+            for (shapes = json_first(shapes); shapes.val.type; shapes = json_next(shapes))
+            {
+                u32 i = config.n_shapes++;
+                config.shapes[i].name = shapes.label.start[0];
+                config.shapes[i].width = json_find(shapes, str("width")).val.decimal;
+                config.shapes[i].length = json_find(shapes, str("length")).val.decimal;
+                config.shapes[i].angle = json_find(shapes, str("angle")).val.decimal;
+            }
+        }
+    }
+    return config;
 }
 
 void game_update_player(void)
@@ -872,13 +928,26 @@ void game_init(void)
         .pos = { .x = 5.0f, .y = 5.0f, .z = 5.0f }
     };
 
-    game.n_plants = 0;
-    game.plants[game.n_plants] = plant_generate();
-    renderer.plants.data[game.n_plants] = plant_meshify(&game.plants[game.n_plants]);
-    game.n_plants++;
+    {
+        FILE* fp = fopen("./res/plant.json", "rb");
+        fseek(fp, 0, SEEK_END);
+        usize size = ftell(fp);
+        rewind(fp);
+        char buf[size];
+        fread(buf, 1, size, fp);
+        fclose(fp);
+        s8 file_slice = array_slice(buf);
+        PlantConfig config = plant_parse_config(json_parse(file_slice));
+        mrw_unused config;
 
-    game.n_plant_positions = 0;
-    game.plant_positions[game.n_plant_positions++] = (vec3s) { .y = 1.0f };
+        game.n_plants = 0;
+        game.plants[game.n_plants] = plant_generate();
+        renderer.plants.data[game.n_plants] = plant_meshify(&game.plants[game.n_plants]);
+        game.n_plants++;
+
+        game.n_plant_positions = 0;
+        game.plant_positions[game.n_plant_positions++] = (vec3s) { .y = 1.0f };
+    }
 }
 
 #ifdef __EMSCRIPTEN__

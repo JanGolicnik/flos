@@ -1,0 +1,17 @@
+{
+  "rules": {
+    "iterations": 6,
+    "initial": "X",
+    "rules": {
+      "X": { "result": "F[+X][-X]FX" },
+      "F": { "result": "FF" }
+    }
+  },
+  "shapes": {
+    "F": {
+      "width": 2.0,
+      "length": 4.0,
+      "angle": 25.0
+    }
+  }
+}
