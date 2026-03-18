@@ -7,28 +7,43 @@ set(CMAKE_C_EXTENSIONS ON)
 
 include(FetchContent)
 
-FetchContent_Declare(
-    cglm
-    GIT_REPOSITORY https://github.com/recp/cglm.git
-    GIT_TAG        v0.9.5
-)
+set(THIRD_PARTY_DEPS cglm marrow printccy ripple)
 
-FetchContent_Declare(
-    marrow
-    GIT_REPOSITORY https://github.com/JanGolicnik/marrow.git
-)
+set(FETCH_CGLM_REPO      "https://github.com/recp/cglm.git")
+set(FETCH_CGLM_TAG       "v0.9.5")
+set(FETCH_MARROW_REPO    "https://github.com/JanGolicnik/marrow.git")
+set(FETCH_MARROW_TAG     "master")
+set(FETCH_PRINTCCY_REPO  "https://github.com/JanGolicnik/printccy.git")
+set(FETCH_PRINTCCY_TAG   "master")
+set(FETCH_RIPPLE_REPO    "https://github.com/JanGolicnik/ripple.git")
+set(FETCH_RIPPLE_TAG     "master")
 
-FetchContent_Declare(
-    printccy
-    GIT_REPOSITORY https://github.com/JanGolicnik/printccy.git
-)
+foreach(dep IN LISTS THIRD_PARTY_DEPS)
+    string(TOUPPER "${dep}" dep_upper)
+    set("${dep_upper}_SOURCE_DIR" CACHE PATH "local path to ${dep}")
+endforeach()
 
-FetchContent_Declare(
-    ripple
-    GIT_REPOSITORY https://github.com/JanGolicnik/ripple.git
-)
+foreach(dep IN LISTS THIRD_PARTY_DEPS)
+    string(TOUPPER "${dep}" dep_upper)
 
-FetchContent_MakeAvailable(cglm marrow printccy ripple)
+    if(DEFINED ${dep_upper}_SOURCE_DIR AND NOT "${${dep_upper}_SOURCE_DIR}" STREQUAL "")
+        message(STATUS "Using local ${dep}: ${${dep_upper}_SOURCE_DIR}")
+        FetchContent_Declare(
+            ${dep}
+            SOURCE_DIR "${${dep_upper}_SOURCE_DIR}"
+        )
+    else()
+        message(STATUS "Fetching ${dep} from ${FETCH_${dep_upper}_REPO} @ ${FETCH_${dep_upper}_TAG}")
+        FetchContent_Declare(
+            ${dep}
+            GIT_REPOSITORY "${FETCH_${dep_upper}_REPO}"
+            GIT_TAG        "${FETCH_${dep_upper}_TAG}"
+            GIT_SHALLOW    TRUE
+        )
+    endif()
+endforeach()
+
+FetchContent_MakeAvailable(${THIRD_PARTY_DEPS})
 
 if(NOT EMSCRIPTEN)
     add_subdirectory(glfw)

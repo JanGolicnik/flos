@@ -603,6 +603,7 @@ void main_loop(void* _)
 
     RIPPLE( FORM( .width = PERCENT(1.0f, SVT_RELATIVE_CHILD), .height = PERCENT(1.0f, SVT_RELATIVE_CHILD)), RECTANGLE( .color = RIPPLE_RGBA(0x2e2e2ebf), .radiusBR = .15f))
     {
+        if (STATE().hovered) game.keys[KEY_PRESSED][KEY_M1] = false;
         game_update();
     }
     render();

@@ -1,0 +1,1 @@
+cmake --build build/debug && gdb -q -ex r -ex bt -ex q build/debug/flos

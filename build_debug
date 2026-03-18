@@ -1,0 +1,1 @@
+cmake --preset debug -DMARROW_SOURCE_DIR=../marrow/ -DRIPPLE_SOURCE_DIR=../ripple/
