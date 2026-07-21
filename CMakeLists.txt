@@ -23,6 +23,8 @@ foreach(dep IN LISTS THIRD_PARTY_DEPS)
     set("${dep_upper}_SOURCE_DIR" CACHE PATH "local path to ${dep}")
 endforeach()
 
+set(WEBGPU_BUILD_FROM_SOURCE=TRUE)
+
 foreach(dep IN LISTS THIRD_PARTY_DEPS)
     string(TOUPPER "${dep}" dep_upper)
 

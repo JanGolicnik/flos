@@ -12,9 +12,11 @@
       "generator": "Ninja",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "WEBGPU_BACKEND": "DAWN",
         "CMAKE_C_COMPILER": "clang",
-        "CMAKE_CXX_COMPILER": "clang++"
+        "CMAKE_CXX_COMPILER": "clang++",
+        "WEBGPU_BACKEND": "DAWN",
+        "WEBGPU_BUILD_FROM_SOURCE": "ON",
+        "DAWN_USE_WAYLAND": "ON"
       }
     },
     {
