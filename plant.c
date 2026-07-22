@@ -71,19 +71,19 @@ Plant plant_generate(void) {
 PlantConfig plant_parse_config(JsonObject json) {
     PlantConfig config = {0};
     for (json = json_first(json); json.val.type; json = json_next(json)) {
-        if (s8_cmp(json.label, str("rules")) == 0) {
+        if (str_cmp(json.label, str("rules")) == 0) {
             config.rules.iterations = json_find(json, str("iterations")).val.integer;
-            s8 initial = json_find(json, str("initial")).val.string;
+            str initial = json_find(json, str("initial")).val.string;
             buf_copy(config.rules.initial, initial.start, slice_size(initial));
             JsonObject rules = json_find(json, str("rules"));
             for (rules = json_first(rules); rules.val.type;
                 rules = json_next(rules)) {
                 u32 i = config.rules.n_rules++;
                 config.rules.rules[i].name = rules.label.start[0];
-                s8 result = json_find(rules, str("result")).val.string;
+                str result = json_find(rules, str("result")).val.string;
                 buf_copy(config.rules.rules[i].result, result.start, slice_size(result));
             }
-        } else if (s8_cmp(json.label, str("shapes")) == 0) {
+        } else if (str_cmp(json.label, str("shapes")) == 0) {
             JsonObject shapes = json;
             for (shapes = json_first(shapes); shapes.val.type; shapes = json_next(shapes)) {
                 u32 i = config.n_shapes++;

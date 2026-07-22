@@ -4,6 +4,7 @@
 #include "marrow/marrow.h"
 #ifndef UNITY_BUILD
 #include "base.c"
+#include "window.c"
 #include "mesh.c"
 #endif
 
@@ -48,14 +49,8 @@ struct {
         WGPURenderPipeline pipeline;
     } plants;
 
-    #ifndef __EMSCRIPTEN__
-    GLFWwindow *window;
-    #endif
-
     RippleContext ripple_context;
-
-    bool reconfigure;
-} renderer;
+} renderer = { 0 };
 
 void render_init_planets(void) {
     WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/planet_shader.wgsl");
@@ -229,11 +224,6 @@ void render_init_plants(void) {
 }
 
 void render_init(void) {
-#ifndef __EMSCRIPTEN__
-    glfwInit();
-    renderer.window = glfwCreateWindow(800, 800, "hello!", nullptr, nullptr);
-#endif
-
     renderer.instance = wgpuCreateInstance(nullptr);
     if (!renderer.instance)
         mrw_error("Failed to create WebGPU instance.");
@@ -262,7 +252,7 @@ void render_init(void) {
 
     renderer.surface = get_surface(renderer.instance
     #ifndef __EMSCRIPTEN__
-        , renderer.window
+        , window.window
     #endif
     );
 
@@ -307,9 +297,8 @@ void render_init(void) {
     render_init_planets();
     render_init_plants();
 
-    renderer.width = 800;
-    renderer.height = 800;
-    renderer.reconfigure = true;
+    renderer.width = 0;
+    renderer.height = 0;
 
     renderer.ripple_context = ripple_initialize((RippleBackendRendererConfig){
         .device = renderer.device,
@@ -364,7 +353,9 @@ void renderer_reconfigure(void) {
 }
 
 void render_prepare(void) {
-    if (renderer.reconfigure) {
+    if (window.width != renderer.width || window.height != renderer.height) {
+        renderer.width = window.width;
+        renderer.height = window.height;
         renderer_reconfigure();
     }
 }
@@ -393,7 +384,7 @@ void render_planets(WGPUCommandEncoder encoder, MeshSlice meshes, WGPUTextureVie
     wgpuRenderPassEncoderSetPipeline(render_pass, renderer.planets.pipeline);
     wgpuRenderPassEncoderSetBindGroup(render_pass, 0, renderer.shader_data.bind_group, 0, nullptr);
 
-    slice_for_each(meshes, mesh) {
+    slice_for_each(meshes, mesh, Mesh) {
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, mesh->vertex_buffer, 0, wgpuBufferGetSize(mesh->vertex_buffer));
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, mesh->instance_buffer.data, 0, wgpuBufferGetSize(mesh->instance_buffer.data));
         wgpuRenderPassEncoderSetIndexBuffer(render_pass, mesh->index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(mesh->index_buffer));
@@ -428,7 +419,7 @@ void render_plants(WGPUCommandEncoder encoder, MeshSlice meshes, WGPUTextureView
     wgpuRenderPassEncoderSetPipeline(render_pass, renderer.plants.pipeline);
     wgpuRenderPassEncoderSetBindGroup( render_pass, 0, renderer.shader_data.bind_group, 0, nullptr);
 
-    slice_for_each(meshes, mesh) {
+    slice_for_each(meshes, mesh, Mesh) {
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, mesh->vertex_buffer, 0, wgpuBufferGetSize(mesh->vertex_buffer));
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, mesh->instance_buffer.data, 0, wgpuBufferGetSize(mesh->instance_buffer.data));
         wgpuRenderPassEncoderSetIndexBuffer(render_pass, mesh->index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(mesh->index_buffer));
@@ -441,11 +432,6 @@ void render_plants(WGPUCommandEncoder encoder, MeshSlice meshes, WGPUTextureView
 
 void render(MeshSlice plant_meshes, MeshSlice planet_meshes) {
     render_prepare();
-
-    if (renderer.reconfigure) {
-        renderer_reconfigure();
-        renderer.reconfigure = false;
-    }
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(renderer.device, &(WGPUCommandEncoderDescriptor){ .label = WEBGPU_STR("Command encoder") });
 
