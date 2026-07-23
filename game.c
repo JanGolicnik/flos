@@ -1,25 +1,18 @@
 #ifndef GAME
 #define GAME
-
+#include "cglm/struct/affine.h"
+#include "cglm/struct/mat4.h"
+#include "cglm/struct/vec3.h"
 #include "marrow/marrow.h"
 #ifndef UNITY_BUILD
 #include "base.c"
+#include "utils.c"
 #include "window.c"
 #include "mesh.c"
+#include "planet.c"
 #include "plant.c"
 #include "render.c"
 #endif
-
-STRUCT(Planet) {
-    f32 gravity;
-    f32 radius;
-    vec3s pos;
-};
-
-STRUCT(PlanetMesh) {
-    VertexSlice vertices;
-    u16Slice indices;
-};
 
 struct {
     f32 prev_time;
@@ -42,19 +35,12 @@ struct {
         f32 speed;
     } player;
 
-    struct {
-        Plant plant;
-        usize mesh;
-    } plants[1];
-    u32 n_plants;
-    vec3s plant_positions[1];
-    u32 n_plant_positions;
+    PlantTemplate plant_templates[1];
+    Mesh plant_meshes[1];
 
     Planet planets[8];
     u32 n_planets;
-
     Mesh planet_meshes[1];
-    Mesh plant_meshes[1];
 
     BumpAllocator frame_allocator;
 } game = { 0 };
@@ -183,82 +169,6 @@ void game_update_input(void) {
     window.mouse.dy = 0.0f;
 }
 
-void subdivide(VertexSlice *vertices, u16 *indices, usize *n_indices) {
-    u32 n = *n_indices;
-    for (u32 i = 0; i < n; i += 3) {
-        u16 i1 = indices[i + 0];
-        u16 i3 = indices[i + 1];
-        u16 i5 = indices[i + 2];
-        Vertex v1 = vertices->start[i1];
-        Vertex v3 = vertices->start[i3];
-        Vertex v5 = vertices->start[i5];
-
-        Vertex v2 = { .position = glms_vec3_scale(glms_vec3_add(v1.position, v3.position), 0.5f) };
-        Vertex v4 = { .position = glms_vec3_scale(glms_vec3_add(v3.position, v5.position), 0.5f) };
-        Vertex v6 = { .position = glms_vec3_scale(glms_vec3_add(v5.position, v1.position), 0.5f) };
-
-        u16 i2 = slice_count(*vertices);
-        *(vertices->end++) = v2;
-        u16 i4 = slice_count(*vertices);
-        *(vertices->end++) = v4;
-        u16 i6 = slice_count(*vertices);
-        *(vertices->end++) = v6;
-
-        indices[i] = i1;
-        indices[i + 1] = i2;
-        indices[i + 2] = i6;
-        indices[(*n_indices)++] = i2;
-        indices[(*n_indices)++] = i3;
-        indices[(*n_indices)++] = i4;
-        indices[(*n_indices)++] = i4;
-        indices[(*n_indices)++] = i5;
-        indices[(*n_indices)++] = i6;
-        indices[(*n_indices)++] = i6;
-        indices[(*n_indices)++] = i2;
-        indices[(*n_indices)++] = i4;
-    }
-}
-
-PlanetMesh planet_generate(Allocator* allocator) {
-    usize n_vertices_start = array_len(icosahedron_indices) / 3;
-    usize n_indices_start = array_len(icosahedron_indices);
-    usize n_vertices = n_vertices_start * 6 * 6;
-    usize n_indices = n_indices_start * 4 * 4;
-    Vertex* vertices = allocator_alloc(allocator, n_vertices * sizeof(Vertex), alignof(Vertex));
-    u16* indices = allocator_alloc(allocator, n_indices * sizeof(u16), alignof(u16));
-
-    buf_copy(vertices, icosahedron_vertices, sizeof(icosahedron_vertices));
-    buf_copy(indices, icosahedron_indices, sizeof(icosahedron_indices));
-
-    VertexSlice vertex_slice = slice_to(vertices, n_vertices_start);
-    subdivide(&vertex_slice, indices, &n_indices_start);
-    subdivide(&vertex_slice, indices, &n_indices_start);
-
-    for (u32 i = 0; i < n_vertices; i++) {
-        Vertex* v = &vertices[i];
-        v->position = v->normal = glms_vec3_normalize(v->position);
-    }
-
-    return (PlanetMesh) {
-      .vertices = slice_to(vertices, n_vertices),
-      .indices = slice_to(indices, n_indices),
-    };
-}
-
-Mesh game_upload_mesh(u8Slice vertices, u8Slice indices, usize instance_size) {
-    return (Mesh) {
-        .vertex_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, vertices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
-        .index_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, indices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index),
-        .instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex)
-    };
-}
-
-void mesh_free(Mesh mesh) {
-    wgpuBufferRelease(mesh.vertex_buffer);
-    wgpuBufferRelease(mesh.index_buffer);
-    wgpuDynamicBufferRelease(&mesh.instance_buffer);
-}
-
 void game_update(void) {
     text(mrw_format("hello! you are running at {} fps.",
         (Allocator *)&game.frame_allocator,
@@ -266,10 +176,10 @@ void game_update(void) {
     ));
 
     if (slider("hello !", &branch, 0.0f, 2.0f, (Allocator *)&game.frame_allocator)) {
-        mesh_free(game.plant_meshes[game.plants[0].mesh]);
-        Plant plant = game.plants[0].plant = plant_generate();
-        PlantMesh mesh = plant_meshify(&plant, (Allocator*)&game.frame_allocator);
-        game.plant_meshes[0] = game_upload_mesh(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlantInstance));
+        render_mesh_free(game.plant_meshes[0]);
+        PlantTemplate template = game.plant_templates[0] = plant_generate();
+        PlantMesh mesh = plant_meshify(&template, (Allocator*)&game.frame_allocator);
+        game.plant_meshes[0] = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlantInstance));
     }
 
     game_update_player();
@@ -285,23 +195,6 @@ void game_init(void) {
     game.player.current_planet = 0;
 
     {
-        game.n_planets = 0;
-        game.planets[game.n_planets++] = (Planet){
-            .gravity = -2.0f,
-            .radius = 1.0f,
-            .pos = { .x = 0.0f, .y = 0.0f, .z = 0.0f }
-        };
-        game.planets[game.n_planets++] = (Planet){
-            .gravity = -2.0f,
-            .radius = 2.0f,
-            .pos = { .x = 5.0f, .y = 5.0f, .z = 5.0f }
-        };
-
-        PlanetMesh mesh = planet_generate((Allocator*)&game.frame_allocator);
-        game.planet_meshes[0] = game_upload_mesh(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlanetInstance));
-    }
-
-    {
         FILE *fp = fopen("./res/plant.json", "rb");
         fseek(fp, 0, SEEK_END);
         usize size = ftell(fp);
@@ -313,20 +206,61 @@ void game_init(void) {
         PlantConfig config = plant_parse_config(json_parse(file_slice));
         mrw_unused config;
 
-        game.n_plants = 0;
-        Plant plant = game.plants[0].plant = plant_generate();
+        PlantTemplate plant = game.plant_templates[0] = plant_generate();
         PlantMesh mesh = plant_meshify(&plant, (Allocator*)&game.frame_allocator);
-        game.plant_meshes[0] = game_upload_mesh(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlantInstance));
-        game.plants[0].mesh = 0;
-        game.n_plants++;
+        game.plant_meshes[0] = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlantInstance));
+    }
 
-        game.n_plant_positions = 0;
-        game.plant_positions[game.n_plant_positions++] = (vec3s){ .y = 1.0f };
+    game.n_planets = 0;
+    {
+        Planet planet = {
+            .gravity = -2.0f,
+            .radius = 1.0f,
+            .pos = { .x = 0.0f, .y = 0.0f, .z = 0.0f },
+            .mesh = 0
+        };
+
+        for (u32 i = 0; i < 100; i++)
+        {
+            vec3s pos = random_on_sphere();
+            planet.plants[planet.n_plants++] = (Plant) {
+                .pos = glms_vec3_scale(pos, planet.radius),
+                .up = pos,
+                .scale = mrw_random_f32(1.0, 3.0) * 0.03,
+                .mesh = 0
+            };
+        }
+
+        game.planets[game.n_planets++] = planet;
+
+        game.planets[game.n_planets++] = (Planet){
+            .gravity = -2.0f,
+            .radius = 2.0f,
+            .pos = { .x = 5.0f, .y = 5.0f, .z = 5.0f },
+            .mesh = 0
+        };
+
+        PlanetMesh mesh = planet_meshify((Allocator*)&game.frame_allocator);
+        game.planet_meshes[0] = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlanetInstance));
     }
 }
 
+static mat4s basis_from_up(vec3s up, vec3s hint) {
+    if (fabsf(glms_vec3_dot(up, glms_vec3_normalize(hint))) > 0.9999f)
+        hint = glms_vec3_ortho(up);
+
+    vec3s x = glms_vec3_normalize(glms_vec3_cross(hint, up));
+    vec3s z = glms_vec3_cross(x, up);
+
+    mat4s m = glms_mat4_identity();
+    m.col[0] = glms_vec4(x, 0.0f);
+    m.col[1] = glms_vec4(up, 0.0f);
+    m.col[2] = glms_vec4(z, 0.0f);
+    return m;
+}
+
 void render_upload(void) {
-    mat4s proj = glms_perspective(to_rad(90.0f), (f32)renderer.width / (f32)renderer.height, 0.01f, 1000.0f);
+    mat4s proj = glms_perspective(to_rad(80.0f), (f32)renderer.width / (f32)renderer.height, 0.01f, 1000.0f);
     glm_mat4_copy(
         glms_mat4_mul(proj, game.player.view).raw,
         renderer.shader_data.data.camera_matrix
@@ -334,27 +268,37 @@ void render_upload(void) {
 
     wgpuQueueWriteBuffer(renderer.queue, renderer.shader_data.buffer, 0, &renderer.shader_data.data, sizeof(renderer.shader_data.data));
 
-    // upload planet instances
-    {
-        Mesh* mesh = &game.planet_meshes[0];
-        wgpuDeviceDynamicBufferEnsure(renderer.device, &mesh->instance_buffer, game.n_planets);
-        PlanetInstance instances[game.n_planets];
-        for (u32 i = 0; i < game.n_planets; i++) {
-            instances[i].radius = game.planets[i].radius;
-            instances[i].pos = game.planets[i].pos;
-        }
-        wgpuQueueWriteBuffer(renderer.queue, mesh->instance_buffer.data, 0, &instances, array_size(instances));
+    array_for_each(game.planet_meshes, m, Mesh){
+        m->n_instances = 0;
+    }
+    array_for_each(game.plant_meshes, m, Mesh){
+        m->n_instances = 0;
     }
 
-    // upload plant instances
-    {
-        Mesh* mesh = &game.plant_meshes[0];
-        wgpuDeviceDynamicBufferEnsure(renderer.device, &mesh->instance_buffer, game.n_plant_positions);
-        PlantInstance instances[game.n_plant_positions];
-        for (u32 i = 0; i < game.n_plant_positions; i++) {
-            instances[i].pos = game.plant_positions[i];
+    static f32 s = 1.0f;
+
+    slider("label, ", &s, 0.0, 1.0, (Allocator*)&game.frame_allocator);
+
+    for (u32 i = 0; i < game.n_planets; i++) {
+        Planet* planet = &game.planets[i];
+
+        Mesh* planet_mesh = &game.planet_meshes[planet->mesh];
+        PlanetInstance instance = {
+            .radius = game.planets[i].radius,
+            .pos = game.planets[i].pos,
+        };
+        wgpuDeviceQueueWriteDynamicBuffer(renderer.device, renderer.queue, &planet_mesh->instance_buffer, slice_u8_one(&instance), ++planet_mesh->n_instances);
+        for (u32 j = 0; j < planet->n_plants; j++) {
+            Plant* plant = &planet->plants[j];
+
+            Mesh* mesh = &game.plant_meshes[plant->mesh];
+            mat4s mat = basis_from_up(plant->up, GLMS_XUP);
+            mat = glms_translated(mat, plant->pos);
+            PlantInstance instance = {
+                .mat = glms_scale(mat, glms_vec3_scale(GLMS_VEC3_ONE, plant->scale * s)),
+            };
+            wgpuDeviceQueueWriteDynamicBuffer(renderer.device, renderer.queue, &mesh->instance_buffer, slice_u8_one(&instance), mesh->n_instances++);
         }
-        wgpuQueueWriteBuffer(renderer.queue, mesh->instance_buffer.data, 0, &instances, array_size(instances));
     }
 }
 
@@ -390,7 +334,7 @@ void game_on_frame(void *_) {
 
     render_upload();
 
-    render(
+    render_render(
         (MeshSlice)slice_to(game.plant_meshes, 1),
         (MeshSlice)slice_to(game.planet_meshes, 1)
     );

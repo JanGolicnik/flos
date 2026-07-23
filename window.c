@@ -1,7 +1,5 @@
 #ifndef WINDOW
 #define WINDOW
-
-#include "ripple/backends/ripple_glfw.h"
 #ifndef UNITY_BUILD
 #include "base.c"
 #endif // UNITY_BUILD

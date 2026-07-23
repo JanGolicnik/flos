@@ -1,6 +1,5 @@
 #ifndef UI
 #define UI
-
 #ifndef UNITY_BUILD
 #include "base.c"
 #include "render.c"

@@ -1,7 +1,6 @@
 #ifndef RENDER
 #define RENDER
-
-#include "marrow/marrow.h"
+#include "webgpu/webgpu.h"
 #ifndef UNITY_BUILD
 #include "base.c"
 #include "window.c"
@@ -12,6 +11,7 @@ STRUCT(Mesh) {
     WGPUBuffer vertex_buffer;
     WGPUBuffer index_buffer;
     WGPUDynamicBuffer instance_buffer;
+    u32 n_instances;
 };
 
 struct {
@@ -121,7 +121,9 @@ void render_init_planets(void) {
             },
             .multisample = { .count = 1, .mask = ~0u },
             .primitive = {
+                // .topology = WGPUPrimitiveTopology_LineStrip,
                 .topology = WGPUPrimitiveTopology_TriangleList,
+                // .stripIndexFormat = WGPUIndexFormat_Uint16,
                 .stripIndexFormat = WGPUIndexFormat_Undefined,
                 .frontFace = WGPUFrontFace_CCW,
                 .cullMode = WGPUCullMode_None
@@ -180,12 +182,27 @@ void render_init_plants(void) {
                 {
                     .arrayStride = sizeof(PlantInstance),
                     .stepMode = WGPUVertexStepMode_Instance,
-                    .attributeCount = 1,
+                    .attributeCount = 4,
                     .attributes = (WGPUVertexAttribute[]) {
                         {
-                            .shaderLocation = 2,
-                            .format = WGPUVertexFormat_Float32x3,
-                            .offset = offsetof(PlantInstance, pos)
+                            .shaderLocation = 3,
+                            .format = WGPUVertexFormat_Float32x4,
+                            .offset = offsetof(PlantInstance, mat.col[0])
+                        },
+                        {
+                            .shaderLocation = 4,
+                            .format = WGPUVertexFormat_Float32x4,
+                            .offset = offsetof(PlantInstance, mat.col[1])
+                        },
+                        {
+                            .shaderLocation = 5,
+                            .format = WGPUVertexFormat_Float32x4,
+                            .offset = offsetof(PlantInstance, mat.col[2])
+                        },
+                        {
+                            .shaderLocation = 6,
+                            .format = WGPUVertexFormat_Float32x4,
+                            .offset = offsetof(PlantInstance, mat.col[3])
                         }
                     }
                 }
@@ -423,14 +440,28 @@ void render_plants(WGPUCommandEncoder encoder, MeshSlice meshes, WGPUTextureView
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, mesh->vertex_buffer, 0, wgpuBufferGetSize(mesh->vertex_buffer));
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, mesh->instance_buffer.data, 0, wgpuBufferGetSize(mesh->instance_buffer.data));
         wgpuRenderPassEncoderSetIndexBuffer(render_pass, mesh->index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(mesh->index_buffer));
-        wgpuRenderPassEncoderDrawIndexed(render_pass, wgpuBufferGetSize(mesh->index_buffer) / sizeof(u16), 1, 0, 0, 0);
+        wgpuRenderPassEncoderDrawIndexed(render_pass, wgpuBufferGetSize(mesh->index_buffer) / sizeof(u16), mesh->n_instances, 0, 0, 0);
     }
 
     wgpuRenderPassEncoderEnd(render_pass);
     wgpuRenderPassEncoderRelease(render_pass);
 }
 
-void render(MeshSlice plant_meshes, MeshSlice planet_meshes) {
+Mesh render_mesh_create(u8Slice vertices, u8Slice indices, usize instance_size) {
+    return (Mesh) {
+        .vertex_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, vertices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
+        .index_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, indices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index),
+        .instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex)
+    };
+}
+
+void render_mesh_free(Mesh mesh) {
+    wgpuBufferRelease(mesh.vertex_buffer);
+    wgpuBufferRelease(mesh.index_buffer);
+    wgpuDynamicBufferRelease(&mesh.instance_buffer);
+}
+
+void render_render(MeshSlice plant_meshes, MeshSlice planet_meshes) {
     render_prepare();
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(renderer.device, &(WGPUCommandEncoderDescriptor){ .label = WEBGPU_STR("Command encoder") });

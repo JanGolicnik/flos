@@ -11,7 +11,10 @@ struct VertexInput {
 };
 
 struct InstanceInput {
-    @location(2) position: vec3f,
+    @location(3) m0: vec4f,
+    @location(4) m1: vec4f,
+    @location(5) m2: vec4f,
+    @location(6) m3: vec4f,
 };
 
 struct VertexOutput{
@@ -20,9 +23,9 @@ struct VertexOutput{
 
 @vertex
 fn vs_main(v: VertexInput, i: InstanceInput) -> VertexOutput {
-    let pos = v.position * .1 + i.position;
+    let model = mat4x4f(i.m0, i.m1, i.m2, i.m3);
     var out: VertexOutput;
-    out.position = shader_data.camera_matrix * vec4f(pos.xyz, 1.0f);
+    out.position = shader_data.camera_matrix * model * vec4f(v.position.xyz, 1.0f);
     return out;
 }
 

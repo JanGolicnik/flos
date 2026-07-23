@@ -1,28 +1,9 @@
 #ifndef PLANT
 #define PLANT
-
-#include "marrow/allocator.h"
-#include "marrow/marrow.h"
-
 #ifndef UNITY_BUILD
 #include "base.c"
 #include "mesh.c"
 #endif
-
-STRUCT(PlantShape) {
-    vec3s start, end;
-    f32 width;
-};
-
-STRUCT(Plant) {
-    PlantShape shapes[1024];
-    u32 n_shapes;
-};
-
-STRUCT(PlantMesh) {
-    VertexSlice vertices;
-    u16Slice indices;
-};
 
 STRUCT(PlantConfig) {
     struct {
@@ -41,6 +22,29 @@ STRUCT(PlantConfig) {
         f32 angle;
     } shapes[8];
     u32 n_shapes;
+};
+
+STRUCT(PlantShape) {
+    vec3s start, end;
+    f32 width;
+};
+
+STRUCT(PlantMesh) {
+    VertexSlice vertices;
+    u16Slice indices;
+};
+
+STRUCT(PlantTemplate) {
+    PlantShape shapes[1024];
+    u32 n_shapes;
+};
+
+STRUCT(Plant)
+{
+    vec3s pos;
+    vec3s up;
+    f32 scale;
+    u32 mesh;
 };
 
 f32 branch = 1.0f;
@@ -62,8 +66,8 @@ PlantShape *plant_step(PlantShape prev, PlantShape *shapes, f32 angle, u32 gen) 
     return shapes;
 }
 
-Plant plant_generate(void) {
-    Plant p = {0};
+PlantTemplate plant_generate(void) {
+    PlantTemplate p = { 0 };
     p.n_shapes = plant_step(p.shapes[0], p.shapes, 0.0f, 0) - p.shapes;
     return p;
 }
@@ -97,7 +101,7 @@ PlantConfig plant_parse_config(JsonObject json) {
     return config;
 }
 
-PlantMesh plant_meshify(Plant *plant, Allocator* allocator) {
+PlantMesh plant_meshify(PlantTemplate *plant, Allocator* allocator) {
     usize n_vertices = plant->n_shapes * 4;
     usize n_indices = plant->n_shapes * 6;
     Vertex* vertices = allocator_alloc(allocator, n_vertices * sizeof(Vertex), alignof(Vertex));
