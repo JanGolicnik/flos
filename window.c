@@ -1,8 +1,5 @@
-#ifndef WINDOW
-#define WINDOW
-#ifndef UNITY_BUILD
+#define FLOS_WINDOW
 #include "base.c"
-#endif // UNITY_BUILD
 
 typedef enum {
     KEY_UNKNOWN = 0,
@@ -163,5 +160,3 @@ void window_init(void)
     glfwSetWindowSizeCallback(window.window, &on_resize);
 #endif // __EMSCRIPTEN__
 }
-
-#endif // WINDOW

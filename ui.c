@@ -1,9 +1,5 @@
-#ifndef UI
-#define UI
-#ifndef UNITY_BUILD
+#define FLOS_UI
 #include "base.c"
-#include "render.c"
-#endif // UNITY_BUILD
 
 void ui_init(void) {
 #ifdef __EMSCRIPTEN__
@@ -12,6 +8,3 @@ void ui_init(void) {
     ripple_glfw_init(&renderer.ripple_context, window.window, false);
 #endif // __EMSCRIPTEN__
 }
-
-
-#endif // UI

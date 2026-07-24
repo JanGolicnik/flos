@@ -1,9 +1,5 @@
-#ifndef PLANT
-#define PLANT
-#ifndef UNITY_BUILD
+#define FLOS_PLANT
 #include "base.c"
-#include "mesh.c"
-#endif
 
 STRUCT(PlantConfig) {
     struct {
@@ -37,14 +33,6 @@ STRUCT(PlantMesh) {
 STRUCT(PlantTemplate) {
     PlantShape shapes[1024];
     u32 n_shapes;
-};
-
-STRUCT(Plant)
-{
-    vec3s pos;
-    vec3s up;
-    f32 scale;
-    u32 mesh;
 };
 
 f32 branch = 1.0f;
@@ -134,5 +122,3 @@ PlantMesh plant_meshify(PlantTemplate *plant, Allocator* allocator) {
         .indices = slice_to(indices, n_indices)
     };
 }
-
-#endif // PLANT

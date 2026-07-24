@@ -1,20 +1,5 @@
-#ifndef PLANET
-#define PLANET
-#ifndef UNITY_BUILD
+#define FLOS_PLANET
 #include "base.c"
-#include "mesh.c"
-#include "plant.c"
-#endif // UNITY_BUILD
-
-STRUCT(Planet) {
-    f32 gravity;
-    f32 radius;
-    vec3s pos;
-    usize mesh;
-
-    Plant plants[100];
-    u32 n_plants;
-};
 
 STRUCT(PlanetMesh) {
     VertexSlice vertices;
@@ -103,5 +88,3 @@ PlanetMesh planet_meshify(Allocator* allocator) {
       .indices = slice_to(indices, n_indices),
     };
 }
-
-#endif // PLANET

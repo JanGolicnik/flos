@@ -1,11 +1,5 @@
-#ifndef RENDER
-#define RENDER
-#include "webgpu/webgpu.h"
-#ifndef UNITY_BUILD
+#define FLOS_RENDER
 #include "base.c"
-#include "window.c"
-#include "mesh.c"
-#endif
 
 STRUCT(Mesh) {
     WGPUBuffer vertex_buffer;
@@ -461,7 +455,7 @@ void render_mesh_free(Mesh mesh) {
     wgpuDynamicBufferRelease(&mesh.instance_buffer);
 }
 
-void render_render(MeshSlice plant_meshes, MeshSlice planet_meshes) {
+void render_render(Scene* scene) {
     render_prepare();
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(renderer.device, &(WGPUCommandEncoderDescriptor){ .label = WEBGPU_STR("Command encoder") });
@@ -505,5 +499,3 @@ void render_render(MeshSlice plant_meshes, MeshSlice planet_meshes) {
     wgpuSurfacePresent(renderer.surface);
     #endif
 }
-
-#endif // RENDER

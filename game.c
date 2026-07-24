@@ -1,18 +1,5 @@
-#ifndef GAME
-#define GAME
-#include "cglm/struct/affine.h"
-#include "cglm/struct/mat4.h"
-#include "cglm/struct/vec3.h"
-#include "marrow/marrow.h"
-#ifndef UNITY_BUILD
+#define FLOS_GAME
 #include "base.c"
-#include "utils.c"
-#include "window.c"
-#include "mesh.c"
-#include "planet.c"
-#include "plant.c"
-#include "render.c"
-#endif
 
 struct {
     f32 prev_time;
@@ -21,33 +8,29 @@ struct {
     f32 avg_fps;
     u32 dt_n_samples;
 
-    struct {
-        f32 yaw;
-        f32 pitch;
-        vec3s pos;
-        vec3s up;
-        vec3s local_vel;
-        vec3s vel;
-        mat4s view;
-        vec3s forward;
-        bool onground;
-        u32 current_planet;
-        f32 speed;
-    } player;
-
     PlantTemplate plant_templates[1];
-    Mesh plant_meshes[1];
 
-    Planet planets[8];
-    u32 n_planets;
-    Mesh planet_meshes[1];
+    VEKTOR(Scene*) scenes;
+    Scene* current_scene;
 
-    BumpAllocator frame_allocator;
+    Mesh meshes[2];
+
+    BumpAllocator _frame_allocator;
+    Allocator* frame_allocator;
+    Allocator* stable_allocator;
 } game = { 0 };
+
+Scene* game_new_scene(void) {
+    Scene* scene = mrw_alloc(game.stable_allocator, Scene);
+    vektor_add(game.scenes, scene);
+    *scene = (Scene) { 0 };
+    genarr_init(scene->entities, 12, game.stable_allocator);
+    return scene;
+}
 
 void game_update_player(void) {
     text(mrw_format("pos: {.2f} {.2f} {.2f}",
-        (Allocator *)&game.frame_allocator,
+        game.frame_allocator,
         game.player.pos.x,
         game.player.pos.y,
         game.player.pos.z)
@@ -169,17 +152,17 @@ void game_update_input(void) {
     window.mouse.dy = 0.0f;
 }
 
-void game_update(void) {
+void game_update(Scene* scene) {
     text(mrw_format("hello! you are running at {} fps.",
         (Allocator *)&game.frame_allocator,
         game.avg_fps
     ));
 
     if (slider("hello !", &branch, 0.0f, 2.0f, (Allocator *)&game.frame_allocator)) {
-        render_mesh_free(game.plant_meshes[0]);
+        render_mesh_free(game.meshes[0]);
         PlantTemplate template = game.plant_templates[0] = plant_generate();
         PlantMesh mesh = plant_meshify(&template, (Allocator*)&game.frame_allocator);
-        game.plant_meshes[0] = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlantInstance));
+        game.meshes[0] = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlantInstance));
     }
 
     game_update_player();
@@ -188,11 +171,19 @@ void game_update(void) {
 }
 
 void game_init(void) {
-    game.frame_allocator = bump_allocator_create();
-    game.player.pos.y = 1.0f;
-    game.player.pos.z = -0.5f;
-    game.player.forward.z = 1.0f;
-    game.player.current_planet = 0;
+    game.stable_allocator = nullptr;
+    game._frame_allocator = bump_allocator_create();
+    game.frame_allocator = &game._frame_allocator;
+
+    Scene* scene = game.current_scene = game_new_scene();
+    scene->player = scene_create_entity(scene, CT_Transform | CT_Physics | CT_Behaviour, {
+        .name = sstr("player"),
+        .transform.world.pos = { .x = 0.0f .y = 1.0f, .z = -0.5f },
+        .physics.planet = 0,
+        .behaviour.type = BT_Player
+    });
+
+    // TODO: game.player.forward.z = 1.0f;
 
     {
         FILE *fp = fopen("./res/plant.json", "rb");
@@ -208,40 +199,55 @@ void game_init(void) {
 
         PlantTemplate plant = game.plant_templates[0] = plant_generate();
         PlantMesh mesh = plant_meshify(&plant, (Allocator*)&game.frame_allocator);
-        game.plant_meshes[0] = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlantInstance));
+        game.meshes[0] = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlantInstance));
     }
 
-    game.n_planets = 0;
     {
-        Planet planet = {
-            .gravity = -2.0f,
-            .radius = 1.0f,
-            .pos = { .x = 0.0f, .y = 0.0f, .z = 0.0f },
-            .mesh = 0
-        };
+        PlanetMesh mesh = planet_meshify((Allocator*)&game.frame_allocator);
+        game.meshes[1] = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlanetInstance));
 
-        for (u32 i = 0; i < 100; i++)
-        {
+        scene->planets[0] = scene_create_entity(scene, CT_Transform | CT_Mesh | CT_Behaviour, {
+            .name = sstr("planet"),
+            .mesh = {
+                .mesh = 1,
+                .shader = 1
+            },
+            .behaviour = {
+                .type = BT_Planet,
+                .planet = {
+                    .gravity = -2.0f,
+                    .radius = 1.0f,
+                }
+            }
+        });
+
+        for (u32 i = 0; i < 100; i++) {
             vec3s pos = random_on_sphere();
-            planet.plants[planet.n_plants++] = (Plant) {
-                .pos = glms_vec3_scale(pos, planet.radius),
-                .up = pos,
-                .scale = mrw_random_f32(1.0, 3.0) * 0.03,
-                .mesh = 0
-            };
+
+            scene_create_entity(scene, CT_Transform | CT_Mesh | CT_Behaviour, {
+                .name = sstr("plant"),
+                .parent = planet,
+                .transform.world = {
+                    .pos = glms_vec3_scale(pos, planet.radius),
+                    .scale = mrw_random_f32(1.0, 3.0) * 0.03,
+                },
+                .mesh = { .mesh = 0, .shader = 0 },
+                .behaviour.type = BT_Plant,
+            });
         }
 
-        game.planets[game.n_planets++] = planet;
-
-        game.planets[game.n_planets++] = (Planet){
-            .gravity = -2.0f,
-            .radius = 2.0f,
-            .pos = { .x = 5.0f, .y = 5.0f, .z = 5.0f },
-            .mesh = 0
-        };
-
-        PlanetMesh mesh = planet_meshify((Allocator*)&game.frame_allocator);
-        game.planet_meshes[0] = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlanetInstance));
+        scene->planets[1] = scene_create_entity(scene, CT_Transform | CT_Mesh | CT_Behaviour, {
+            .name = sstr("planet2"),
+            .mesh = { .mesh = 1, .shader = 1 },
+            .transform.pos = { .x = 5.0f, .y = 5.0f, .z = 5.0f },
+            .behaviour = {
+                .type = BT_Planet,
+                .planet = {
+                    .gravity = -4.0f,
+                    .radius = 2.0f,
+                }
+            },
+        });
     }
 }
 
@@ -259,7 +265,8 @@ static mat4s basis_from_up(vec3s up, vec3s hint) {
     return m;
 }
 
-void render_upload(void) {
+void render_upload(Scene* scene) {
+
     mat4s proj = glms_perspective(to_rad(80.0f), (f32)renderer.width / (f32)renderer.height, 0.01f, 1000.0f);
     glm_mat4_copy(
         glms_mat4_mul(proj, game.player.view).raw,
@@ -274,10 +281,6 @@ void render_upload(void) {
     array_for_each(game.plant_meshes, m, Mesh){
         m->n_instances = 0;
     }
-
-    static f32 s = 1.0f;
-
-    slider("label, ", &s, 0.0, 1.0, (Allocator*)&game.frame_allocator);
 
     for (u32 i = 0; i < game.n_planets; i++) {
         Planet* planet = &game.planets[i];
@@ -295,7 +298,7 @@ void render_upload(void) {
             mat4s mat = basis_from_up(plant->up, GLMS_XUP);
             mat = glms_translated(mat, plant->pos);
             PlantInstance instance = {
-                .mat = glms_scale(mat, glms_vec3_scale(GLMS_VEC3_ONE, plant->scale * s)),
+                .mat = glms_scale(mat, glms_vec3_scale(GLMS_VEC3_ONE, plant->scale)),
             };
             wgpuDeviceQueueWriteDynamicBuffer(renderer.device, renderer.queue, &mesh->instance_buffer, slice_u8_one(&instance), mesh->n_instances++);
         }
@@ -329,17 +332,10 @@ void game_on_frame(void *_) {
             window.keys[KEY_PRESSED][KEY_M1] = false;
         }
 
-        game_update();
+        game_update(game.active_scene);
     }
 
-    render_upload();
-
-    render_render(
-        (MeshSlice)slice_to(game.plant_meshes, 1),
-        (MeshSlice)slice_to(game.planet_meshes, 1)
-    );
+    render_render(game.active_scene);
 
     bump_allocator_reset(&game.frame_allocator);
 }
-
-#endif // GAME
