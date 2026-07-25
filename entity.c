@@ -1,3 +1,4 @@
+#include "marrow/marrow.h"
 #define FLOS_ENTITY
 #include "base.c"
 
@@ -6,6 +7,7 @@ typedef enum {
     CT_Mesh = BIT(1),
     CT_Physics = BIT(2),
     CT_Behaviour = BIT(3),
+    CT_IsHidden = BIT(4),
 } ComponentType;
 
 typedef enum {
@@ -22,7 +24,6 @@ STRUCT(Entity) {
     str name;
     Scene* scene;
     EntityHandle parent, first_child, next_sibling;
-    bool hidden;
     ComponentType components;
     struct {
         struct {
@@ -31,12 +32,10 @@ STRUCT(Entity) {
                 quats rot;
                 float scale;
             } local, world;
+            mat4s _world;
         } transform;
 
-        struct {
-            u32 mesh;
-            u32 shader;
-        } mesh;
+        MeshHandle mesh;
 
         struct {
             vec3s vel;
@@ -48,18 +47,25 @@ STRUCT(Entity) {
             BehaviourType type;
             union {
                 struct {
-                    f32 _;
-                } plant;
-
+                    u8 _;
+                } player;
                 struct {
                     f32 gravity;
                     f32 radius;
                 } planet;
-
                 struct {
-                    f32 _;
-                } player;
+                    u8 _;
+                } plant;
+
             };
         } behaviour;
     };
 };
+
+void entity_enable(Entity* entity, ComponentType components) {
+    FLAG_SET(entity->components, components);
+}
+
+bool entity_has(Entity* entity, ComponentType components) {
+    return FLAG_HAS_ALL(entity->components, components);
+}

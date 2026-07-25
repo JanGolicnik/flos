@@ -1,3 +1,5 @@
+#include "marrow/genarr.h"
+#include "marrow/marrow.h"
 #define FLOS_SCENE
 #include "base.c"
 
@@ -9,14 +11,6 @@ STRUCT(Scene) {
 
 Entity* scene_get_entity(Scene* scene, EntityHandle handle) {
     return genarr_get((scene)->entities, handle);
-}
-
-void entity_enable(Entity* entity, ComponentType components) {
-    entity->components |= components;
-}
-
-bool entity_has(Entity* entity, ComponentType components) {
-    return entity->components & components;
 }
 
 EntityHandle _scene_create_entity(Scene* scene, EntityHandle handle) {
@@ -36,3 +30,23 @@ EntityHandle _scene_create_entity(Scene* scene, EntityHandle handle) {
 
 #define scene_create_entity(_scene, _comps, ...)\
     _scene_create_entity(genarr_add((_scene)->entities, (Entity){ .components = (_comps), __VA_ARGS__ }))
+
+STRUCT(EntityIter) {
+    Entity* entity;
+    u64 _i;
+    ComponentType include;
+    ComponentType any;
+    ComponentType exclude;
+};
+
+bool scene_next_entity(Scene* scene, EntityIter* iter) {
+    FLAG_SET(iter->exclude, CT_IsHidden);
+    FLAG_CLEAR(iter->exclude, iter->include);
+    while ((iter->entity = genarr_next_valid(scene->entities, &iter->_i))) {
+        ComponentType comps = iter->entity->components;
+        if (FLAG_HAS_ANY(comps, iter->exclude)) continue;
+        if (!FLAG_HAS_ALL(comps, iter->include)) continue;
+        if (iter->any && FLAG_HAS_ANY(comps, iter->any)) return true;
+    }
+    return false;
+}

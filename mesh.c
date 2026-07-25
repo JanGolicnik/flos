@@ -14,3 +14,5 @@ STRUCT(PlanetInstance) {
 STRUCT(PlantInstance) {
     mat4s mat;
 };
+
+typedef GenarrHandle MeshHandle;

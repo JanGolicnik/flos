@@ -1,3 +1,5 @@
+#include "marrow/genarr.h"
+#include "marrow/marrow.h"
 #define FLOS_RENDER
 #include "base.c"
 
@@ -43,8 +45,26 @@ struct {
         WGPURenderPipeline pipeline;
     } plants;
 
+    GENARR(Mesh) meshes;
+
     RippleContext ripple_context;
 } renderer = { 0 };
+
+MeshHandle render_mesh_create(u8Slice vertices, u8Slice indices, usize instance_size) {
+    return genarr_add(renderer.meshes, (Mesh) {
+        .vertex_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, vertices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
+        .index_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, indices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index),
+        .instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex)
+    });
+}
+
+void render_mesh_free(MeshHandle handle) {
+    Mesh* mesh = genarr_get(renderer.meshes, handle);
+    wgpuBufferRelease(mesh->vertex_buffer);
+    wgpuBufferRelease(mesh->index_buffer);
+    wgpuDynamicBufferRelease(&mesh->instance_buffer);
+    genarr_remove(renderer.meshes, handle);
+}
 
 void render_init_planets(void) {
     WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/planet_shader.wgsl");
@@ -363,14 +383,6 @@ void renderer_reconfigure(void) {
     );
 }
 
-void render_prepare(void) {
-    if (window.width != renderer.width || window.height != renderer.height) {
-        renderer.width = window.width;
-        renderer.height = window.height;
-        renderer_reconfigure();
-    }
-}
-
 void render_planets(WGPUCommandEncoder encoder, MeshSlice meshes, WGPUTextureView surface_texture_view) {
     WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
         encoder,
@@ -441,22 +453,61 @@ void render_plants(WGPUCommandEncoder encoder, MeshSlice meshes, WGPUTextureView
     wgpuRenderPassEncoderRelease(render_pass);
 }
 
-Mesh render_mesh_create(u8Slice vertices, u8Slice indices, usize instance_size) {
-    return (Mesh) {
-        .vertex_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, vertices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
-        .index_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, indices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index),
-        .instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex)
-    };
-}
+void render_prepare(Scene* scene) {
+    if (window.width != renderer.width || window.height != renderer.height) {
+        renderer.width = window.width;
+        renderer.height = window.height;
+        renderer_reconfigure();
+    }
 
-void render_mesh_free(Mesh mesh) {
-    wgpuBufferRelease(mesh.vertex_buffer);
-    wgpuBufferRelease(mesh.index_buffer);
-    wgpuDynamicBufferRelease(&mesh.instance_buffer);
+    // upload render data
+    {
+        Entity* player = scene_get_entity(scene, scene->player);
+        mat4s proj = glms_perspective(to_rad(80.0f), (f32)renderer.width / (f32)renderer.height, 0.01f, 1000.0f);
+        glm_mat4_copy(
+            glms_mat4_mul(proj, player->transform._world).raw,
+            renderer.shader_data.data.camera_matrix
+        );
+
+        wgpuQueueWriteBuffer(renderer.queue, renderer.shader_data.buffer, 0, &renderer.shader_data.data, sizeof(renderer.shader_data.data));
+    }
+
+
+    // upload meshes
+    Mesh* mesh = nullptr;
+    genarr_for_each(renderer.meshes, mesh) {
+        mesh->n_instances = 0;
+    }
+
+    EntityIter iter = { .include = CT_Mesh | CT_Transform };
+    while (scene_next_entity(scene, &iter)) {
+        #define upload(data) wgpuDeviceQueueWriteDynamicBuffer(renderer.device, renderer.queue, &mesh->instance_buffer, slice_u8_one((data)), ++mesh->n_instances);
+        Entity* entity = iter.entity;
+        Mesh* mesh = genarr_get(renderer.meshes, entity->mesh);
+        if (entity_has(entity, CT_Behaviour)) {
+            switch (entity->behaviour.type) {
+                case BT_Planet: {
+                    PlanetInstance instance = {
+                        .radius = entity->behaviour.planet.radius,
+                        .pos = entity->transform.world.pos,
+                    };
+                    upload(&instance);
+                } continue;
+
+                case BT_Plant:
+                case BT_Player:
+                break;
+            }
+        }
+
+        PlantInstance instance = { .mat = entity->transform._world };
+        upload(&instance);
+        #undef upload
+    }
 }
 
 void render_render(Scene* scene) {
-    render_prepare();
+    render_prepare(scene);
 
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(renderer.device, &(WGPUCommandEncoderDescriptor){ .label = WEBGPU_STR("Command encoder") });
 
