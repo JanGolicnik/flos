@@ -1,3 +1,4 @@
+#include "cglm/struct/quat.h"
 #include "marrow/genarr.h"
 #include "marrow/marrow.h"
 #define FLOS_RENDER
@@ -8,7 +9,10 @@ STRUCT(Mesh) {
     WGPUBuffer index_buffer;
     WGPUDynamicBuffer instance_buffer;
     u32 n_instances;
+    u32 shader;
 };
+
+typedef GENARR_ITER_ALIAS(Mesh, mesh) MeshIter;
 
 struct {
     u32 width, height;
@@ -50,12 +54,26 @@ struct {
     RippleContext ripple_context;
 } renderer = { 0 };
 
-MeshHandle render_mesh_create(u8Slice vertices, u8Slice indices, usize instance_size) {
+MeshHandle render_mesh_create(u8Slice vertices, u8Slice indices, usize instance_size, u32 shader) {
     return genarr_add(renderer.meshes, (Mesh) {
         .vertex_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, vertices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
         .index_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, indices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index),
-        .instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex)
+        .instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
+        .shader = shader,
     });
+}
+
+void render_mesh_re_create(MeshHandle old, u8Slice vertices, u8Slice indices, usize instance_size, u32 shader) {
+    Mesh* mesh = genarr_get(renderer.meshes, old);
+
+    wgpuBufferRelease(mesh->vertex_buffer);
+    wgpuBufferRelease(mesh->index_buffer);
+    wgpuDynamicBufferRelease(&mesh->instance_buffer);
+
+    mesh->vertex_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, vertices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex);
+    mesh->index_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, indices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index);
+    mesh->instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex);
+    mesh->shader = shader;
 }
 
 void render_mesh_free(MeshHandle handle) {
@@ -107,17 +125,27 @@ void render_init_planets(void) {
                     {
                         .arrayStride = sizeof(PlanetInstance),
                         .stepMode = WGPUVertexStepMode_Instance,
-                        .attributeCount = 2,
+                        .attributeCount = 4,
                         .attributes = (WGPUVertexAttribute[]) {
                             {
-                                .shaderLocation = 2,
-                                .format = WGPUVertexFormat_Float32,
-                                .offset = offsetof(PlanetInstance, radius)
+                                .shaderLocation = 3,
+                                .format = WGPUVertexFormat_Float32x4,
+                                .offset = offsetof(PlantInstance, mat.col[0])
                             },
                             {
-                                .shaderLocation = 3,
-                                .format = WGPUVertexFormat_Float32x3,
-                                .offset = offsetof(PlanetInstance, pos)
+                                .shaderLocation = 4,
+                                .format = WGPUVertexFormat_Float32x4,
+                                .offset = offsetof(PlantInstance, mat.col[1])
+                            },
+                            {
+                                .shaderLocation = 5,
+                                .format = WGPUVertexFormat_Float32x4,
+                                .offset = offsetof(PlantInstance, mat.col[2])
+                            },
+                            {
+                                .shaderLocation = 6,
+                                .format = WGPUVertexFormat_Float32x4,
+                                .offset = offsetof(PlantInstance, mat.col[3])
                             }
                         }
                     }
@@ -383,7 +411,7 @@ void renderer_reconfigure(void) {
     );
 }
 
-void render_planets(WGPUCommandEncoder encoder, MeshSlice meshes, WGPUTextureView surface_texture_view) {
+void render_render_meshes(WGPUCommandEncoder encoder, WGPUTextureView surface_texture_view) {
     WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
         encoder,
         &(WGPURenderPassDescriptor) {
@@ -404,45 +432,12 @@ void render_planets(WGPUCommandEncoder encoder, MeshSlice meshes, WGPUTextureVie
         }
     );
 
-    wgpuRenderPassEncoderSetPipeline(render_pass, renderer.planets.pipeline);
-    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, renderer.shader_data.bind_group, 0, nullptr);
+    MeshIter iter = { 0 };
+    while (genarr_next_valid(renderer.meshes, &iter)) {
+        Mesh* mesh = iter.mesh;
+        wgpuRenderPassEncoderSetPipeline(render_pass, iter.mesh->shader == 0 ? renderer.plants.pipeline : renderer.planets.pipeline);
+        wgpuRenderPassEncoderSetBindGroup(render_pass, 0, renderer.shader_data.bind_group, 0, nullptr);
 
-    slice_for_each(meshes, mesh, Mesh) {
-        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, mesh->vertex_buffer, 0, wgpuBufferGetSize(mesh->vertex_buffer));
-        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, mesh->instance_buffer.data, 0, wgpuBufferGetSize(mesh->instance_buffer.data));
-        wgpuRenderPassEncoderSetIndexBuffer(render_pass, mesh->index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(mesh->index_buffer));
-        wgpuRenderPassEncoderDrawIndexed(render_pass, wgpuBufferGetSize(mesh->index_buffer) / sizeof(u16), wgpuDynamicBufferGetCount(&mesh->instance_buffer), 0, 0, 0);
-    }
-
-    wgpuRenderPassEncoderEnd(render_pass);
-    wgpuRenderPassEncoderRelease(render_pass);
-}
-
-void render_plants(WGPUCommandEncoder encoder, MeshSlice meshes, WGPUTextureView surface_texture_view) {
-    WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
-        encoder,
-        &(WGPURenderPassDescriptor) {
-            .colorAttachmentCount = 1,
-            .colorAttachments = &(WGPURenderPassColorAttachment) {
-                    .view = surface_texture_view,
-                    .loadOp = WGPULoadOp_Load,
-                    .storeOp = WGPUStoreOp_Store,
-                    .clearValue = (WGPUColor){84.0f / 255.0f, 119.0f / 255.0f, 146.0f / 255.0f, 1.0f},
-                    .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED
-            },
-            .depthStencilAttachment = &(WGPURenderPassDepthStencilAttachment){
-                .view = renderer.depth.view,
-                .depthLoadOp = WGPULoadOp_Load,
-                .depthClearValue = 1.0f,
-                .depthStoreOp = WGPUStoreOp_Store
-            }
-        }
-    );
-
-    wgpuRenderPassEncoderSetPipeline(render_pass, renderer.plants.pipeline);
-    wgpuRenderPassEncoderSetBindGroup( render_pass, 0, renderer.shader_data.bind_group, 0, nullptr);
-
-    slice_for_each(meshes, mesh, Mesh) {
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, mesh->vertex_buffer, 0, wgpuBufferGetSize(mesh->vertex_buffer));
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, mesh->instance_buffer.data, 0, wgpuBufferGetSize(mesh->instance_buffer.data));
         wgpuRenderPassEncoderSetIndexBuffer(render_pass, mesh->index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(mesh->index_buffer));
@@ -462,47 +457,32 @@ void render_prepare(Scene* scene) {
 
     // upload render data
     {
-        Entity* player = scene_get_entity(scene, scene->player);
+        Entity* camera = scene_get_entity(scene, scene->camera);
         mat4s proj = glms_perspective(to_rad(80.0f), (f32)renderer.width / (f32)renderer.height, 0.01f, 1000.0f);
+        mat4s world_mat = glms_mat4_from_transform(&camera->transform.world);
+        mat4s view = glms_mat4_inv(world_mat);
         glm_mat4_copy(
-            glms_mat4_mul(proj, player->transform._world).raw,
+            glms_mat4_mul(proj, view).raw,
             renderer.shader_data.data.camera_matrix
         );
 
         wgpuQueueWriteBuffer(renderer.queue, renderer.shader_data.buffer, 0, &renderer.shader_data.data, sizeof(renderer.shader_data.data));
     }
 
-
     // upload meshes
-    Mesh* mesh = nullptr;
-    genarr_for_each(renderer.meshes, mesh) {
-        mesh->n_instances = 0;
+    {
+        MeshIter iter = { 0 };
+        while (genarr_next_valid(renderer.meshes, &iter)) {
+            iter.mesh->n_instances = 0;
+        }
     }
 
     EntityIter iter = { .include = CT_Mesh | CT_Transform };
     while (scene_next_entity(scene, &iter)) {
-        #define upload(data) wgpuDeviceQueueWriteDynamicBuffer(renderer.device, renderer.queue, &mesh->instance_buffer, slice_u8_one((data)), ++mesh->n_instances);
         Entity* entity = iter.entity;
-        Mesh* mesh = genarr_get(renderer.meshes, entity->mesh);
-        if (entity_has(entity, CT_Behaviour)) {
-            switch (entity->behaviour.type) {
-                case BT_Planet: {
-                    PlanetInstance instance = {
-                        .radius = entity->behaviour.planet.radius,
-                        .pos = entity->transform.world.pos,
-                    };
-                    upload(&instance);
-                } continue;
-
-                case BT_Plant:
-                case BT_Player:
-                break;
-            }
-        }
-
-        PlantInstance instance = { .mat = entity->transform._world };
-        upload(&instance);
-        #undef upload
+        Mesh* mesh = genarr_get(renderer.meshes, entity->mesh.mesh);
+        PlantInstance instance = { .mat = glms_mat4_from_transform(&entity->transform.world) };
+        wgpuDeviceQueueWriteDynamicBuffer(renderer.device, renderer.queue, &mesh->instance_buffer, slice_u8_one(&instance), mesh->n_instances++);
     }
 }
 
@@ -525,8 +505,7 @@ void render_render(Scene* scene) {
         }
     );
 
-    render_planets(encoder, planet_meshes, surface_texture_view);
-    render_plants(encoder, plant_meshes, surface_texture_view);
+    render_render_meshes(encoder, surface_texture_view);
 
     ripple_submit(&renderer.ripple_context,
         renderer.width, renderer.height,

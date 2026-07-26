@@ -7,8 +7,7 @@ STRUCT(Vertex) {
 };
 
 STRUCT(PlanetInstance) {
-    f32 radius;
-    vec3s pos;
+    mat4s mat;
 };
 
 STRUCT(PlantInstance) {

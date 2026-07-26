@@ -1,3 +1,4 @@
+#include "marrow/allocator.h"
 #define FLOS_WINDOW
 #include "base.c"
 
@@ -159,4 +160,38 @@ void window_init(void)
     glfwSetKeyCallback(window.window, &on_key);
     glfwSetWindowSizeCallback(window.window, &on_resize);
 #endif // __EMSCRIPTEN__
+}
+
+void window_update_input(Allocator* allocator) {
+#ifndef __EMSCRIPTEN__
+    if (window.keys[KEY_PRESSED][KEY_ESC]) {
+        window.mouse.has_lock = false;
+        glfwSetInputMode(window.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    }
+#endif
+
+    for (i32 i = 1; i < (i32)KEY_LAST; i++) {
+        if (window.keys[KEY_PRESSED][i])
+            window.keys[KEY_HELD][i] = true;
+        if (window.keys[KEY_RELEASED][i])
+            window.keys[KEY_HELD][i] = false;
+        window.keys[KEY_PRESSED][i] = false;
+        window.keys[KEY_RELEASED][i] = false;
+    }
+
+    if (!CURSOR().consumed && CURSOR().left.pressed) {
+    #ifdef __EMSCRIPTEN__
+        emscripten_request_pointerlock("#canvas", EM_TRUE);
+    #else
+        glfwSetInputMode(window.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        window.mouse.has_lock = true;
+    #endif
+    }
+
+    text(mrw_format("mousedxdy: {.2f} {.2f}", allocator,
+        window.mouse.dx,
+        window.mouse.dy
+    ));
+    window.mouse.dx = 0.0f;
+    window.mouse.dy = 0.0f;
 }
