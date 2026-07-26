@@ -76,7 +76,7 @@ void game_update_player(Scene* scene) {
 
         struct Transform* local = &child->transform.local;
 
-        child->camera.pitch = clamp(child->camera.pitch + window.mouse.dy * 0.01, -M_PI, M_PI);
+        child->camera.pitch = clamp(child->camera.pitch + window.mouse.dy * 0.01, -M_PI * 0.5, M_PI * 0.5);
 
         local->rot = glms_quat_mul(glms_quatv(child->camera.pitch, GLMS_XUP), glms_quatv(M_PI, GLMS_YUP));
         entity_transform_apply_local(child);

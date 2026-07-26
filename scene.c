@@ -41,9 +41,14 @@ struct Transform transform_calculate_local(struct Transform parent, struct Trans
 
 void entity_transform_apply(Entity* entity, Entity* parent, EntityTransformUpdate update) {
     if (update == ETU_LOCAL)
+    {
         entity->transform.world = parent ? transform_calculate_world(parent->transform.world, entity->transform.local) : entity->transform.local;
+        entity->transform._matrix = glms_mat4_from_transform(&entity->transform.world);
+    }
     else
+    {
         entity->transform.local = parent ? transform_calculate_local(parent->transform.world, entity->transform.world) : entity->transform.world;
+    }
 
     for_each_entity_children(entity, child) {
         if (entity_has(child, CT_IsHidden)) continue;
@@ -84,6 +89,7 @@ EntityHandle _scene_create_entity(Scene* scene, EntityHandle handle) {
             entity->transform.world.rot = glms_quat_normalize(entity->transform.world.rot);
             if (entity->transform.world.scale == 0.0f) entity->transform.world.scale = 1.0f;
             entity_transform_apply_world(entity);
+            entity->transform._matrix = glms_mat4_from_transform(&entity->transform.world);
         }
         else  {
             entity->transform.local.rot = glms_quat_normalize(entity->transform.local.rot);

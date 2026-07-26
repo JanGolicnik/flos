@@ -30,6 +30,7 @@ STRUCT(Entity) {
             quats rot;
             f32 scale;
         } local, world;
+        mat4s _matrix;
     } transform;
 
     struct MeshC {

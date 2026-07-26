@@ -35,7 +35,7 @@ STRUCT(PlantTemplate) {
     u32 n_shapes;
 };
 
-f32 branch = 1.0f;
+f32 branch = 0.2f;
 PlantShape *plant_step(PlantShape prev, PlantShape *shapes, f32 angle, u32 gen) {
     if (gen > 6)
         return shapes;

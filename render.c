@@ -1,6 +1,5 @@
-#include "cglm/struct/quat.h"
-#include "marrow/genarr.h"
 #include "marrow/marrow.h"
+#include "marrow/vektor.h"
 #define FLOS_RENDER
 #include "base.c"
 
@@ -8,7 +7,7 @@ STRUCT(Mesh) {
     WGPUBuffer vertex_buffer;
     WGPUBuffer index_buffer;
     WGPUDynamicBuffer instance_buffer;
-    u32 n_instances;
+    VEKTOR(u8) instance_data;
     u32 shader;
 };
 
@@ -55,12 +54,14 @@ struct {
 } renderer = { 0 };
 
 MeshHandle render_mesh_create(u8Slice vertices, u8Slice indices, usize instance_size, u32 shader) {
-    return genarr_add(renderer.meshes, (Mesh) {
+    Mesh mesh = (Mesh) {
         .vertex_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, vertices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
         .index_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, indices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index),
         .instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
         .shader = shader,
-    });
+    };
+    vektor_init(mesh.instance_data, 1, nullptr);
+    return genarr_add(renderer.meshes, mesh);
 }
 
 void render_mesh_re_create(MeshHandle old, u8Slice vertices, u8Slice indices, usize instance_size, u32 shader) {
@@ -78,9 +79,12 @@ void render_mesh_re_create(MeshHandle old, u8Slice vertices, u8Slice indices, us
 
 void render_mesh_free(MeshHandle handle) {
     Mesh* mesh = genarr_get(renderer.meshes, handle);
+
     wgpuBufferRelease(mesh->vertex_buffer);
     wgpuBufferRelease(mesh->index_buffer);
     wgpuDynamicBufferRelease(&mesh->instance_buffer);
+    vektor_free(mesh->instance_data);
+
     genarr_remove(renderer.meshes, handle);
 }
 
@@ -441,7 +445,7 @@ void render_render_meshes(WGPUCommandEncoder encoder, WGPUTextureView surface_te
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, mesh->vertex_buffer, 0, wgpuBufferGetSize(mesh->vertex_buffer));
         wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, mesh->instance_buffer.data, 0, wgpuBufferGetSize(mesh->instance_buffer.data));
         wgpuRenderPassEncoderSetIndexBuffer(render_pass, mesh->index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(mesh->index_buffer));
-        wgpuRenderPassEncoderDrawIndexed(render_pass, wgpuBufferGetSize(mesh->index_buffer) / sizeof(u16), mesh->n_instances, 0, 0, 0);
+        wgpuRenderPassEncoderDrawIndexed(render_pass, wgpuBufferGetSize(mesh->index_buffer) / sizeof(u16), wgpuDynamicBufferGetCount(&mesh->instance_buffer), 0, 0, 0);
     }
 
     wgpuRenderPassEncoderEnd(render_pass);
@@ -469,20 +473,29 @@ void render_prepare(Scene* scene) {
         wgpuQueueWriteBuffer(renderer.queue, renderer.shader_data.buffer, 0, &renderer.shader_data.data, sizeof(renderer.shader_data.data));
     }
 
-    // upload meshes
     {
-        MeshIter iter = { 0 };
-        while (genarr_next_valid(renderer.meshes, &iter)) {
-            iter.mesh->n_instances = 0;
+        MeshIter mesh_iter = { 0 };
+        while (genarr_next_valid(renderer.meshes, &mesh_iter)) {
+            vektor_clear(mesh_iter.mesh->instance_data);
         }
     }
 
-    EntityIter iter = { .include = CT_Mesh | CT_Transform };
-    while (scene_next_entity(scene, &iter)) {
-        Entity* entity = iter.entity;
-        Mesh* mesh = genarr_get(renderer.meshes, entity->mesh.mesh);
-        PlantInstance instance = { .mat = glms_mat4_from_transform(&entity->transform.world) };
-        wgpuDeviceQueueWriteDynamicBuffer(renderer.device, renderer.queue, &mesh->instance_buffer, slice_u8_one(&instance), mesh->n_instances++);
+    {
+        EntityIter iter = { .include = CT_Mesh | CT_Transform };
+        while (scene_next_entity(scene, &iter)) {
+            Entity* entity = iter.entity;
+            Mesh* mesh = genarr_get(renderer.meshes, entity->mesh.mesh);
+            u8Slice slice = slice_u8_one(&entity->transform._matrix);
+            vektor_add_arr(mesh->instance_data, slice);
+        }
+    }
+
+    {
+        MeshIter mesh_iter = { 0 };
+        while (genarr_next_valid(renderer.meshes, &mesh_iter)) {
+            u8Slice slice = slice_vektor(mesh_iter.mesh->instance_data);
+            wgpuDeviceQueueWriteDynamicBufferRaw(renderer.device, renderer.queue, &mesh_iter.mesh->instance_buffer, slice);
+        }
     }
 }
 
