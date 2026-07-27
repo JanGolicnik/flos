@@ -1,8 +1,3 @@
-struct ShaderData {
-    camera_matrix: mat4x4<f32>,
-    camera_position: vec3f,
-    time: f32,
-};
 @group(0) @binding(0) var<uniform> shader_data: ShaderData;
 
 struct VertexInput {
@@ -19,6 +14,7 @@ struct InstanceInput {
 
 struct VertexOutput{
     @builtin(position) position: vec4f,
+    @location(0) t: f32,
 };
 
 @vertex
@@ -26,17 +22,16 @@ fn vs_main(v: VertexInput, i: InstanceInput) -> VertexOutput {
     let model = mat4x4f(i.m0, i.m1, i.m2, i.m3);
     var out: VertexOutput;
     out.position = shader_data.camera_matrix * model * vec4f(v.position.xyz, 1.0f);
+    out.t = v.position.y / 2.0f;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    return vec4f(1.0f, 0.7f, 0.4f, 1.0f);
-    // let dark = vec3f(84, 119, 146) / 255.0;
-    // let light = vec3f(250, 185, 91) / 255.0f;
+    let dark = vec3f(27, 94, 32) / 255.0;
+    let light = vec3f(1.0f);
 
-    // let d = dot(in.normal, normalize(vec3f(1.0f, 1.0f, 1.0f)));
-    // let color = mix(dark, light, d * 0.5 + 0.5);
+    let color = mix(dark, light, min(in.t * in.t, 1.0f));
 
-    // return vec4f(pow(color, vec3f(2.2)), 1.0f);
+    return vec4f(pow(color, vec3f(2.2)), 1.0f);
 }

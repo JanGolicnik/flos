@@ -1,6 +1,7 @@
 #include "base.c"
 
 i32 main(void) {
+    memory_init();
     window_init();
     render_init();
     game_init();

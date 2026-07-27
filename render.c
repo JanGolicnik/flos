@@ -1,5 +1,3 @@
-#include "marrow/marrow.h"
-#include "marrow/vektor.h"
 #define FLOS_RENDER
 #include "base.c"
 
@@ -9,6 +7,15 @@ STRUCT(Mesh) {
     WGPUDynamicBuffer instance_buffer;
     VEKTOR(u8) instance_data;
     u32 shader;
+};
+
+STRUCT(AtmospherePlanet) {
+    vec3s pos;
+    f32 radius;
+};
+
+str common_includes[] = {
+    sstr("./res/shaders/common.wgsl")
 };
 
 typedef GENARR_ITER_ALIAS(Mesh, mesh) MeshIter;
@@ -29,8 +36,11 @@ struct {
         WGPUBuffer buffer;
         struct {
             mat4 camera_matrix;
+            mat4 inv_camera_matrix;
             vec3s camera_position;
             f32 time;
+            vec2s res;
+            f32 _pad[2];
         } data;
     } shader_data;
 
@@ -48,6 +58,13 @@ struct {
         WGPURenderPipeline pipeline;
     } plants;
 
+    struct {
+        WGPUBindGroupLayout layout;
+        WGPUBindGroup bind_group;
+        WGPUDynamicBuffer buffer;
+        WGPURenderPipeline pipeline;
+    } atmosphere;
+
     GENARR(Mesh) meshes;
 
     RippleContext ripple_context;
@@ -60,7 +77,7 @@ MeshHandle render_mesh_create(u8Slice vertices, u8Slice indices, usize instance_
         .instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
         .shader = shader,
     };
-    vektor_init(mesh.instance_data, 1, nullptr);
+    vektor_init(mesh.instance_data, 1, memory.stable);
     return genarr_add(renderer.meshes, mesh);
 }
 
@@ -89,7 +106,7 @@ void render_mesh_free(MeshHandle handle) {
 }
 
 void render_init_planets(void) {
-    WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/planet_shader.wgsl");
+    WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/shaders/planet.wgsl", (strSlice)array_slice(common_includes), memory.frame);
 
     WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(renderer.device,
         &(WGPUPipelineLayoutDescriptor) {
@@ -129,27 +146,37 @@ void render_init_planets(void) {
                     {
                         .arrayStride = sizeof(PlanetInstance),
                         .stepMode = WGPUVertexStepMode_Instance,
-                        .attributeCount = 4,
+                        .attributeCount = 6,
                         .attributes = (WGPUVertexAttribute[]) {
                             {
                                 .shaderLocation = 3,
                                 .format = WGPUVertexFormat_Float32x4,
-                                .offset = offsetof(PlantInstance, mat.col[0])
+                                .offset = offsetof(PlanetInstance, mat.col[0])
                             },
                             {
                                 .shaderLocation = 4,
                                 .format = WGPUVertexFormat_Float32x4,
-                                .offset = offsetof(PlantInstance, mat.col[1])
+                                .offset = offsetof(PlanetInstance, mat.col[1])
                             },
                             {
                                 .shaderLocation = 5,
                                 .format = WGPUVertexFormat_Float32x4,
-                                .offset = offsetof(PlantInstance, mat.col[2])
+                                .offset = offsetof(PlanetInstance, mat.col[2])
                             },
                             {
                                 .shaderLocation = 6,
                                 .format = WGPUVertexFormat_Float32x4,
-                                .offset = offsetof(PlantInstance, mat.col[3])
+                                .offset = offsetof(PlanetInstance, mat.col[3])
+                            },
+                            {
+                                .shaderLocation = 7,
+                                .format = WGPUVertexFormat_Float32,
+                                .offset = offsetof(PlanetInstance, shell_t)
+                            },
+                            {
+                                .shaderLocation = 8,
+                                .format = WGPUVertexFormat_Float32,
+                                .offset = offsetof(PlanetInstance, scale)
                             }
                         }
                     }
@@ -191,7 +218,7 @@ void render_init_planets(void) {
 }
 
 void render_init_plants(void) {
-    WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/plant_shader.wgsl");
+    WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/shaders/plant.wgsl", (strSlice)array_slice(common_includes), memory.frame);
 
     WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(renderer.device, &(WGPUPipelineLayoutDescriptor) {
         .bindGroupLayoutCount = 1,
@@ -226,29 +253,29 @@ void render_init_plants(void) {
                     }
                 },
                 {
-                    .arrayStride = sizeof(PlantInstance),
+                    .arrayStride = sizeof(Instance),
                     .stepMode = WGPUVertexStepMode_Instance,
                     .attributeCount = 4,
                     .attributes = (WGPUVertexAttribute[]) {
                         {
                             .shaderLocation = 3,
                             .format = WGPUVertexFormat_Float32x4,
-                            .offset = offsetof(PlantInstance, mat.col[0])
+                            .offset = offsetof(Instance, mat.col[0])
                         },
                         {
                             .shaderLocation = 4,
                             .format = WGPUVertexFormat_Float32x4,
-                            .offset = offsetof(PlantInstance, mat.col[1])
+                            .offset = offsetof(Instance, mat.col[1])
                         },
                         {
                             .shaderLocation = 5,
                             .format = WGPUVertexFormat_Float32x4,
-                            .offset = offsetof(PlantInstance, mat.col[2])
+                            .offset = offsetof(Instance, mat.col[2])
                         },
                         {
                             .shaderLocation = 6,
                             .format = WGPUVertexFormat_Float32x4,
-                            .offset = offsetof(PlantInstance, mat.col[3])
+                            .offset = offsetof(Instance, mat.col[3])
                         }
                     }
                 }
@@ -280,6 +307,55 @@ void render_init_plants(void) {
             .stencilReadMask = ~0,
             .stencilWriteMask = ~0,
         }
+    });
+
+    wgpuPipelineLayoutRelease(layout);
+    wgpuShaderModuleRelease(shader_module);
+}
+
+void render_init_atmosphere(void) {
+    WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/shaders/atmosphere.wgsl", (strSlice)array_slice(common_includes), memory.frame);
+
+    renderer.atmosphere.layout = wgpuDeviceCreateBindGroupLayout(renderer.device, &(WGPUBindGroupLayoutDescriptor) {
+        .entryCount = 1,
+        .entries = &(WGPUBindGroupLayoutEntry) {
+            .binding = 0,
+            .visibility = WGPUShaderStage_Fragment,
+            .buffer.type = WGPUBufferBindingType_ReadOnlyStorage,
+        }
+    });
+
+    WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(renderer.device, &(WGPUPipelineLayoutDescriptor) {
+        .bindGroupLayoutCount = 2,
+        .bindGroupLayouts = (WGPUBindGroupLayout[]){
+            renderer.shader_data.layout,
+            renderer.atmosphere.layout
+        }
+    });
+
+    renderer.atmosphere.buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 0, sizeof(AtmospherePlanet), WGPUBufferUsage_CopyDst | WGPUBufferUsage_Storage);
+
+    renderer.atmosphere.pipeline = wgpuDeviceCreateRenderPipeline(renderer.device, &(WGPURenderPipelineDescriptor) {
+        .label = WEBGPU_STR("atmosphere"),
+        .layout = layout,
+        .vertex = {
+            .module = shader_module,
+            .entryPoint = WEBGPU_STR("vs_main"),
+        },
+        .fragment = &(WGPUFragmentState) {
+            .module = shader_module,
+            .entryPoint = WEBGPU_STR("fs_main"),
+            .targetCount = 1,
+            .targets = &(WGPUColorTargetState) {
+                .format = renderer.surface_format,
+                .writeMask = WGPUColorWriteMask_All,
+                .blend = &wgpu_normal_blend_state
+            }
+        },
+        .multisample = { .count = 1, .mask = ~0u },
+        .primitive = {
+            .topology = WGPUPrimitiveTopology_TriangleList,
+        },
     });
 
     wgpuPipelineLayoutRelease(layout);
@@ -359,6 +435,7 @@ void render_init(void) {
 
     render_init_planets();
     render_init_plants();
+    render_init_atmosphere();
 
     renderer.width = 0;
     renderer.height = 0;
@@ -398,7 +475,7 @@ void renderer_reconfigure(void) {
             .label = WEBGPU_STR("depth texture"),
             .size = renderer.depth.extent,
             .format = WGPUTextureFormat_Depth24Plus,
-            .usage = WGPUTextureUsage_RenderAttachment,
+            .usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding,
             .dimension = WGPUTextureDimension_2D,
             .mipLevelCount = 1,
             .sampleCount = 1
@@ -415,18 +492,58 @@ void renderer_reconfigure(void) {
     );
 }
 
-void render_render_meshes(WGPUCommandEncoder encoder, WGPUTextureView surface_texture_view) {
+void render_render_meshes(Scene* scene, WGPUCommandEncoder encoder, WGPUTextureView surface_texture_view) {
+    {
+        MeshIter mesh_iter = { 0 };
+        while (genarr_next_valid(renderer.meshes, &mesh_iter)) {
+            vektor_clear(mesh_iter.mesh->instance_data);
+        }
+    }
+
+    {
+        EntityIter iter = { .include = CT_Mesh | CT_Transform };
+        while (scene_next_entity(scene, &iter)) {
+            Entity* entity = iter.entity;
+            Mesh* mesh = genarr_get(renderer.meshes, entity->mesh.mesh);
+
+            if (entity_has(entity, CT_Planet)) {
+                PlanetInstance shells[16] = { 0 };
+                for (u32 i = 0; i < 16; i++) {
+                    shells[i] = (PlanetInstance){
+                        .mat = entity->transform._matrix,
+                        .shell_t = i / 15.0f,
+                        .scale = entity->transform.world.scale,
+                    };
+                }
+                u8Slice slice = slice_to((u8*)shells, array_size(shells));
+                vektor_add_arr(mesh->instance_data, slice);
+                continue;
+            }
+
+            u8Slice slice = slice_u8_one(&entity->transform._matrix);
+            vektor_add_arr(mesh->instance_data, slice);
+        }
+    }
+
+    {
+        MeshIter mesh_iter = { 0 };
+        while (genarr_next_valid(renderer.meshes, &mesh_iter)) {
+            u8Slice slice = slice_vektor(mesh_iter.mesh->instance_data);
+            wgpuDeviceQueueWriteDynamicBufferRaw(renderer.device, renderer.queue, &mesh_iter.mesh->instance_buffer, slice);
+        }
+    }
+
     WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
         encoder,
         &(WGPURenderPassDescriptor) {
             .colorAttachmentCount = 1,
             .colorAttachments = &(WGPURenderPassColorAttachment) {
-                    .view = surface_texture_view,
-                    .loadOp = WGPULoadOp_Clear,
-                    .storeOp = WGPUStoreOp_Store,
-                    .clearValue = (WGPUColor){ 84.0f / 255.0f, 119.0f / 255.0f, 146.0f / 255.0f, 1.0f },
-                    .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED
-                },
+                .view = surface_texture_view,
+                .loadOp = WGPULoadOp_Clear,
+                .storeOp = WGPUStoreOp_Store,
+                .clearValue = (WGPUColor){ 84.0f / 255.0f, 119.0f / 255.0f, 146.0f / 255.0f, 1.0f },
+                .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED
+            },
             .depthStencilAttachment = &(WGPURenderPassDepthStencilAttachment) {
                 .view = renderer.depth.view,
                 .depthLoadOp = WGPULoadOp_Clear,
@@ -452,6 +569,65 @@ void render_render_meshes(WGPUCommandEncoder encoder, WGPUTextureView surface_te
     wgpuRenderPassEncoderRelease(render_pass);
 }
 
+void render_render_atmosphere(Scene* scene, WGPUCommandEncoder encoder, WGPUTextureView surface_texture_view) {
+    u32 n_planets = 0;
+
+    {
+        EntityIter planet_iter = { .include = CT_Planet | CT_Mesh };
+        while (scene_next_entity(scene, &planet_iter)) {
+            n_planets++;
+        }
+    }
+
+    AtmospherePlanet buffer[n_planets];
+    u32 i = 0;
+    EntityIter iter = { .include = CT_Planet | CT_Mesh };
+    while (scene_next_entity(scene, &iter)) {
+        buffer[i].pos = iter.entity->transform.world.pos;
+        buffer[i].radius = iter.entity->transform.world.scale;
+        i++;
+    }
+
+    if (wgpuDeviceQueueWriteDynamicBufferRaw(renderer.device, renderer.queue, &renderer.atmosphere.buffer, slice_u8_arr(buffer)))
+    {
+        if (renderer.atmosphere.bind_group) {
+            wgpuBindGroupRelease(renderer.atmosphere.bind_group);
+        }
+
+        renderer.atmosphere.bind_group = wgpuDeviceCreateBindGroup(renderer.device, &(WGPUBindGroupDescriptor) {
+            .layout = renderer.atmosphere.layout,
+            .entryCount = 1,
+            .entries = &(WGPUBindGroupEntry) {
+                .buffer = renderer.atmosphere.buffer.data,
+                .size = wgpuDynamicBufferGetSize(&renderer.atmosphere.buffer)
+            }
+        });
+    }
+
+    WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
+        encoder,
+        &(WGPURenderPassDescriptor) {
+            .colorAttachmentCount = 1,
+            .colorAttachments = &(WGPURenderPassColorAttachment) {
+                .view = surface_texture_view,
+                .loadOp = WGPULoadOp_Load,
+                .storeOp = WGPUStoreOp_Store,
+                .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED
+            },
+        }
+    );
+
+    wgpuRenderPassEncoderSetPipeline(render_pass, renderer.atmosphere.pipeline);
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, renderer.shader_data.bind_group, 0, nullptr);
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 1, renderer.atmosphere.bind_group, 0, nullptr);
+    wgpuRenderPassEncoderDraw(render_pass, 6, 1, 0, 0);
+
+    wgpuRenderPassEncoderEnd(render_pass);
+    wgpuRenderPassEncoderRelease(render_pass);
+}
+
+f32 planet_grass_scale = 0.01;
+
 void render_prepare(Scene* scene) {
     if (window.width != renderer.width || window.height != renderer.height) {
         renderer.width = window.width;
@@ -465,37 +641,15 @@ void render_prepare(Scene* scene) {
         mat4s proj = glms_perspective(to_rad(80.0f), (f32)renderer.width / (f32)renderer.height, 0.01f, 1000.0f);
         mat4s world_mat = glms_mat4_from_transform(&camera->transform.world);
         mat4s view = glms_mat4_inv(world_mat);
-        glm_mat4_copy(
-            glms_mat4_mul(proj, view).raw,
-            renderer.shader_data.data.camera_matrix
-        );
+        mat4s vp = glms_mat4_mul(proj, view);
+        glm_mat4_copy(vp.raw, renderer.shader_data.data.camera_matrix);
+        glm_mat4_copy(glms_mat4_inv(vp).raw, renderer.shader_data.data.inv_camera_matrix);
+        renderer.shader_data.data.camera_position = camera->transform.world.pos;
+
+        renderer.shader_data.data.res.x = (f32)window.width;
+        renderer.shader_data.data.res.y = (f32)window.height;
 
         wgpuQueueWriteBuffer(renderer.queue, renderer.shader_data.buffer, 0, &renderer.shader_data.data, sizeof(renderer.shader_data.data));
-    }
-
-    {
-        MeshIter mesh_iter = { 0 };
-        while (genarr_next_valid(renderer.meshes, &mesh_iter)) {
-            vektor_clear(mesh_iter.mesh->instance_data);
-        }
-    }
-
-    {
-        EntityIter iter = { .include = CT_Mesh | CT_Transform };
-        while (scene_next_entity(scene, &iter)) {
-            Entity* entity = iter.entity;
-            Mesh* mesh = genarr_get(renderer.meshes, entity->mesh.mesh);
-            u8Slice slice = slice_u8_one(&entity->transform._matrix);
-            vektor_add_arr(mesh->instance_data, slice);
-        }
-    }
-
-    {
-        MeshIter mesh_iter = { 0 };
-        while (genarr_next_valid(renderer.meshes, &mesh_iter)) {
-            u8Slice slice = slice_vektor(mesh_iter.mesh->instance_data);
-            wgpuDeviceQueueWriteDynamicBufferRaw(renderer.device, renderer.queue, &mesh_iter.mesh->instance_buffer, slice);
-        }
     }
 }
 
@@ -518,7 +672,8 @@ void render_render(Scene* scene) {
         }
     );
 
-    render_render_meshes(encoder, surface_texture_view);
+    render_render_meshes(scene, encoder, surface_texture_view);
+    render_render_atmosphere(scene, encoder, surface_texture_view);
 
     ripple_submit(&renderer.ripple_context,
         renderer.width, renderer.height,

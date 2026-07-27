@@ -8,9 +8,12 @@ STRUCT(Vertex) {
 
 STRUCT(PlanetInstance) {
     mat4s mat;
+    f32 shell_t;
+    f32 scale;
+    f32 _pad[2];
 };
 
-STRUCT(PlantInstance) {
+STRUCT(Instance) {
     mat4s mat;
 };
 

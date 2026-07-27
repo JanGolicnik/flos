@@ -1,6 +1,3 @@
-#include "cglm/struct/quat.h"
-#include "cglm/struct/vec3.h"
-#include "marrow/marrow.h"
 #define FLOS_GAME
 #include "base.c"
 
@@ -18,17 +15,14 @@ struct {
 
     MeshHandle plant_mesh;
     MeshHandle planet_mesh;
-
-    BumpAllocator _frame_allocator;
-    Allocator* frame_allocator;
-    Allocator* stable_allocator;
+    MeshHandle atmosphete_mesh;
 } game = { 0 };
 
 Scene* game_new_scene(void) {
-    Scene* scene = mrw_alloc(game.stable_allocator, Scene);
+    Scene* scene = mrw_alloc(memory.stable, Scene);
     vektor_add(game.scenes, scene);
     *scene = (Scene) { 0 };
-    genarr_init(scene->entities, 12, game.stable_allocator);
+    genarr_init(scene->entities, 12, memory.stable);
     return scene;
 }
 
@@ -38,7 +32,7 @@ void game_update_player(Scene* scene) {
 
     struct Transform* world = &entity->transform.world;
 
-    text(mrw_format("pos: {.2f} {.2f} {.2f}", game.frame_allocator,
+    text(mrw_format("pos: {.2f} {.2f} {.2f}", memory.frame,
         world->pos.x,
         world->pos.y,
         world->pos.z
@@ -107,7 +101,7 @@ void game_update_player(Scene* scene) {
         break;
     }
 
-    text(mrw_format("vely: {.3f}", game.frame_allocator, phys->vel.y));
+    text(mrw_format("vely: {.3f}", memory.frame, phys->vel.y));
 }
 
 void game_update_physics(Scene* scene) {
@@ -145,12 +139,14 @@ void game_update_physics(Scene* scene) {
 }
 
 void game_update(Scene* scene) {
-    text(mrw_format("hello! you are running at {} fps.", game.frame_allocator, game.avg_fps));
+    text(mrw_format("hello! you are running at {} fps.", memory.frame, game.avg_fps));
 
-    if (slider("hello !", &branch, 0.0f, 2.0f, game.frame_allocator)) {
+    slider("planet stuff", &planet_grass_scale, 0.0001f, 0.01f, memory.frame);
+
+    if (slider("hello !", &branch, 0.0f, 2.0f, memory.frame)) {
         PlantTemplate template = game.plant_templates[0] = plant_generate();
-        PlantMesh mesh = plant_meshify(&template, game.frame_allocator);
-        render_mesh_re_create(game.plant_mesh, slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlantInstance), 0);
+        PlantMesh mesh = plant_meshify(&template, memory.frame);
+        render_mesh_re_create(game.plant_mesh, slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(Instance), 0);
     }
 
     game_update_player(scene);
@@ -158,9 +154,6 @@ void game_update(Scene* scene) {
 }
 
 void game_init(void) {
-    game.stable_allocator = nullptr;
-    game._frame_allocator = bump_allocator_create();
-    game.frame_allocator = (Allocator*)&game._frame_allocator;
     Scene* scene = game.current_scene = game_new_scene();
 
     // meshes
@@ -178,11 +171,11 @@ void game_init(void) {
 
         {
             PlantTemplate plant = game.plant_templates[0] = plant_generate();
-            PlantMesh mesh = plant_meshify(&plant, game.frame_allocator);
-            game.plant_mesh = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlantInstance), 0);
+            PlantMesh mesh = plant_meshify(&plant, memory.frame);
+            game.plant_mesh = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(Instance), 0);
         }
         {
-            PlanetMesh mesh = planet_meshify(game.frame_allocator);
+            PlanetMesh mesh = planet_meshify(memory.frame);
             game.planet_mesh = render_mesh_create(slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(PlanetInstance), 1);
         }
     }
@@ -197,8 +190,8 @@ void game_init(void) {
         .name = sstr("planet2"),
         .mesh = { game.planet_mesh },
         .transform.world = {
-            .pos = { .x = 5.0f, .y = 5.0f, .z = 5.0f },
-            .scale = 2.0f,
+            .pos = { .x = 20.0f, .y = 20.0f, .z = 20.0f },
+            .scale = 10.0f,
         },
         .planet.gravity = -4.0f,
     );
@@ -276,10 +269,10 @@ void game_on_frame(void *_) {
         }
 
         game_update(game.current_scene);
-        window_update_input(game.frame_allocator);
+        window_update_input(memory.frame);
     }
 
     render_render(game.current_scene);
 
-    bump_allocator_reset(&game._frame_allocator);
+    bump_allocator_reset(&memory._frame);
 }

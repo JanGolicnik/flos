@@ -25,6 +25,9 @@
 
 typedef versors quats;
 
+#ifndef FLOS_MEMORY
+#include "memory.c"
+
 #ifndef FLOS_UTILS
 #include "utils.c"
 
@@ -55,6 +58,7 @@ typedef versors quats;
 #ifndef FLOS_GAME
 #include "game.c"
 
+#endif
 #endif
 #endif
 #endif
