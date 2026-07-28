@@ -40,7 +40,8 @@ struct {
             vec3s camera_position;
             f32 time;
             vec2s res;
-            f32 _pad[2];
+            f32 atmosphere_height;
+            f32 atmosphere_falloff;
         } data;
     } shader_data;
 
@@ -349,7 +350,7 @@ void render_init_atmosphere(void) {
             .targets = &(WGPUColorTargetState) {
                 .format = renderer.surface_format,
                 .writeMask = WGPUColorWriteMask_All,
-                .blend = &wgpu_normal_blend_state
+                .blend = &wgpu_normal_blend_state_add
             }
         },
         .multisample = { .count = 1, .mask = ~0u },
@@ -432,6 +433,9 @@ void render_init(void) {
             .size = sizeof(renderer.shader_data.data)
         }
     });
+
+    renderer.shader_data.data.atmosphere_height = 1.27f;
+    renderer.shader_data.data.atmosphere_falloff = 2.5f;
 
     render_init_planets();
     render_init_plants();

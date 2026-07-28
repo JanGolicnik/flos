@@ -3,7 +3,10 @@ struct ShaderData {
     inv_camera_matrix: mat4x4f,
     camera_position: vec3f,
     time: f32,
-    res: vec2f
+    res: vec2f,
+
+    atmosphere_height: f32,
+    atmosphere_falloff: f32,
 };
 
 const PI = 3.14159265359;

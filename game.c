@@ -143,6 +143,9 @@ void game_update(Scene* scene) {
 
     slider("planet stuff", &planet_grass_scale, 0.0001f, 0.01f, memory.frame);
 
+    slider("atmo height", &renderer.shader_data.data.atmosphere_height, 1.0f, 5.0f, memory.frame);
+    slider("atmo falloff", &renderer.shader_data.data.atmosphere_falloff, 1.0f, 50.0f, memory.frame);
+
     if (slider("hello !", &branch, 0.0f, 2.0f, memory.frame)) {
         PlantTemplate template = game.plant_templates[0] = plant_generate();
         PlantMesh mesh = plant_meshify(&template, memory.frame);
