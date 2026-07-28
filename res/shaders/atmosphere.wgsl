@@ -65,26 +65,29 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let rd = normalize(world - r0);
 
     let color1 = vec3f(1.0f);
-    let color2 = vec3f(0.0f, 0.0f, 1.0f);
+    let color2 = vec3f(1.0f, 0.0f, 0.0f);
 
     let height = shader_data.atmosphere_height;
-    var color = vec4f(0.0f);
+    var color = vec3f(0.0f);
+    var scatter = 0.0f;
     for (var i = 0u; i < arrayLength(&planets); i++) {
         let planet = planets[i];
-        let atmo_r = planet.radius + height;
+        let r = planet.radius;
+        let atmo_r = r + height;
         var t0 = 0.0f;
         var t1 = 0.0f;
         if (raySphereIntersect(r0, rd, planet.pos, atmo_r, &t0, &t1)) {
             var t2 = 0.0f;
-            raySphereIntersect(r0, rd, planet.pos, planet.radius, &t1, &t2);
+            raySphereIntersect(r0, rd, planet.pos, r, &t1, &t2);
 
+            let limb = 2.0f * sqrt(atmo_r*atmo_r - r*r);
             let p0 = select(r0, r0 + rd * t0, t0 > 0.0f);
             let p1 = r0 + rd * t1;
-            var t = distance(p0, p1) / (atmo_r * 2.0f);
+            var t = distance(p0, p1) / limb;
             t = pow(t, shader_data.atmosphere_falloff);
-            color = ;
-            color += vec4f(mix(color1, color2, t), t);
+            color += mix(color1, color2, t) * t;
+            scatter = scatter + t - scatter * t;
         }
     }
-    return vec4f(color);
+    return vec4f(color, scatter * 0.5f);
 }
