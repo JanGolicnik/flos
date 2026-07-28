@@ -1,3 +1,4 @@
+#include "webgpu/webgpu.h"
 #define FLOS_RENDER
 #include "base.c"
 
@@ -41,6 +42,7 @@ struct {
             f32 time;
             vec2s res;
             f32 atmosphere_height;
+            f32 atmosphere_density;
             f32 atmosphere_falloff;
         } data;
     } shader_data;
@@ -318,11 +320,21 @@ void render_init_atmosphere(void) {
     WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/shaders/atmosphere.wgsl", (strSlice)array_slice(common_includes), memory.frame);
 
     renderer.atmosphere.layout = wgpuDeviceCreateBindGroupLayout(renderer.device, &(WGPUBindGroupLayoutDescriptor) {
-        .entryCount = 1,
-        .entries = &(WGPUBindGroupLayoutEntry) {
-            .binding = 0,
-            .visibility = WGPUShaderStage_Fragment,
-            .buffer.type = WGPUBufferBindingType_ReadOnlyStorage,
+        .entryCount = 2,
+        .entries = (WGPUBindGroupLayoutEntry[]) {
+            {
+                .binding = 0,
+                .visibility = WGPUShaderStage_Fragment,
+                .buffer.type = WGPUBufferBindingType_ReadOnlyStorage,
+            },
+            {
+                .binding = 1,
+                .visibility = WGPUShaderStage_Fragment,
+                .texture = {
+                    .sampleType = WGPUTextureSampleType_Depth,
+                    .viewDimension = WGPUTextureViewDimension_2D,
+                },
+            }
         }
     });
 
@@ -334,7 +346,7 @@ void render_init_atmosphere(void) {
         }
     });
 
-    renderer.atmosphere.buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 0, sizeof(AtmospherePlanet), WGPUBufferUsage_CopyDst | WGPUBufferUsage_Storage);
+    renderer.atmosphere.buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 1, sizeof(AtmospherePlanet), WGPUBufferUsage_CopyDst | WGPUBufferUsage_Storage);
 
     renderer.atmosphere.pipeline = wgpuDeviceCreateRenderPipeline(renderer.device, &(WGPURenderPipelineDescriptor) {
         .label = WEBGPU_STR("atmosphere"),
@@ -434,8 +446,9 @@ void render_init(void) {
         }
     });
 
-    renderer.shader_data.data.atmosphere_height = 1.27f;
-    renderer.shader_data.data.atmosphere_falloff = 2.5f;
+    renderer.shader_data.data.atmosphere_height = 1.2f;
+    renderer.shader_data.data.atmosphere_density = 1.2;
+    renderer.shader_data.data.atmosphere_falloff = 2.0f;
 
     render_init_planets();
     render_init_plants();
@@ -450,6 +463,28 @@ void render_init(void) {
         .surface_format = renderer.surface_format
     });
     ripple_make_active_context(&renderer.ripple_context);
+}
+
+void renderer_reconfigure_atmosphere_bind_group(void) {
+    if (renderer.atmosphere.bind_group) {
+        wgpuBindGroupRelease(renderer.atmosphere.bind_group);
+    }
+
+    renderer.atmosphere.bind_group = wgpuDeviceCreateBindGroup(renderer.device, &(WGPUBindGroupDescriptor) {
+        .layout = renderer.atmosphere.layout,
+        .entryCount = 2,
+        .entries = (WGPUBindGroupEntry[]) {
+            {
+                .binding = 0,
+                .buffer = renderer.atmosphere.buffer.data,
+                .size = wgpuDynamicBufferGetSize(&renderer.atmosphere.buffer)
+            },
+            {
+                .binding = 1,
+                .textureView = renderer.depth.view,
+            }
+        }
+    });
 }
 
 void renderer_reconfigure(void) {
@@ -494,6 +529,7 @@ void renderer_reconfigure(void) {
             .aspect = WGPUTextureAspect_DepthOnly,
         }
     );
+    renderer_reconfigure_atmosphere_bind_group();
 }
 
 void render_render_meshes(Scene* scene, WGPUCommandEncoder encoder, WGPUTextureView surface_texture_view) {
@@ -594,18 +630,7 @@ void render_render_atmosphere(Scene* scene, WGPUCommandEncoder encoder, WGPUText
 
     if (wgpuDeviceQueueWriteDynamicBufferRaw(renderer.device, renderer.queue, &renderer.atmosphere.buffer, slice_u8_arr(buffer)))
     {
-        if (renderer.atmosphere.bind_group) {
-            wgpuBindGroupRelease(renderer.atmosphere.bind_group);
-        }
-
-        renderer.atmosphere.bind_group = wgpuDeviceCreateBindGroup(renderer.device, &(WGPUBindGroupDescriptor) {
-            .layout = renderer.atmosphere.layout,
-            .entryCount = 1,
-            .entries = &(WGPUBindGroupEntry) {
-                .buffer = renderer.atmosphere.buffer.data,
-                .size = wgpuDynamicBufferGetSize(&renderer.atmosphere.buffer)
-            }
-        });
+        renderer_reconfigure_atmosphere_bind_group();
     }
 
     WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(

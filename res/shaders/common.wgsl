@@ -6,6 +6,7 @@ struct ShaderData {
     res: vec2f,
 
     atmosphere_height: f32,
+    atmosphere_density: f32,
     atmosphere_falloff: f32,
 };
 
