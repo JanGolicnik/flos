@@ -668,11 +668,11 @@ void render_prepare(Scene* scene) {
     {
         Entity* camera = scene_get_entity(scene, scene->camera);
         mat4s proj = glms_perspective(to_rad(80.0f), (f32)renderer.width / (f32)renderer.height, 0.01f, 1000.0f);
-        mat4s world_mat = glms_mat4_from_transform(&camera->transform.world);
-        mat4s view = glms_mat4_inv(world_mat);
-        mat4s vp = glms_mat4_mul(proj, view);
+        mat4s world_mat = mat4_from_transform(&camera->transform.world);
+        mat4s view = mat4_inv(world_mat);
+        mat4s vp = mat4_mul(proj, view);
         glm_mat4_copy(vp.raw, renderer.shader_data.data.camera_matrix);
-        glm_mat4_copy(glms_mat4_inv(vp).raw, renderer.shader_data.data.inv_camera_matrix);
+        glm_mat4_copy(mat4_inv(vp).raw, renderer.shader_data.data.inv_camera_matrix);
         renderer.shader_data.data.camera_position = camera->transform.world.pos;
 
         renderer.shader_data.data.res.x = (f32)window.width;

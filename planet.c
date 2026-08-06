@@ -37,9 +37,9 @@ static void subdivide(VertexSlice *vertices, u16 *indices, usize *n_indices) {
         Vertex v3 = vertices->start[i3];
         Vertex v5 = vertices->start[i5];
 
-        Vertex v2 = { .position = glms_vec3_scale(glms_vec3_add(v1.position, v3.position), 0.5f) };
-        Vertex v4 = { .position = glms_vec3_scale(glms_vec3_add(v3.position, v5.position), 0.5f) };
-        Vertex v6 = { .position = glms_vec3_scale(glms_vec3_add(v5.position, v1.position), 0.5f) };
+        Vertex v2 = { .position = vec3_scale(vec3_add(v1.position, v3.position), 0.5f) };
+        Vertex v4 = { .position = vec3_scale(vec3_add(v3.position, v5.position), 0.5f) };
+        Vertex v6 = { .position = vec3_scale(vec3_add(v5.position, v1.position), 0.5f) };
 
         u16 i2 = slice_count(*vertices);
         *(vertices->end++) = v2;
@@ -80,7 +80,7 @@ PlanetMesh planet_meshify(Allocator* allocator) {
 
     for (u32 i = 0; i < n_vertices; i++) {
         Vertex* v = &vertices[i];
-        v->position = v->normal = glms_vec3_normalize(v->position);
+        v->position = v->normal = vec3_normalize(v->position);
     }
 
     return (PlanetMesh) {

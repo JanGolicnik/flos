@@ -72,12 +72,12 @@ bool entity_has(Entity* entity, ComponentType components) {
     return FLAG_HAS_ALL(entity->components, components);
 }
 
-mat4s glms_mat4_from_transform(struct Transform* transform)
+mat4s mat4_from_transform(struct Transform* transform)
 {
-    mat4s mat = glms_quat_mat4(transform->rot);
-    mat.col[0] = glms_vec4_scale(mat.col[0], transform->scale);
-    mat.col[1] = glms_vec4_scale(mat.col[1], transform->scale);
-    mat.col[2] = glms_vec4_scale(mat.col[2], transform->scale);
+    mat4s mat = quat_mat4(transform->rot);
+    mat.col[0] = vec4_scale(mat.col[0], transform->scale);
+    mat.col[1] = vec4_scale(mat.col[1], transform->scale);
+    mat.col[2] = vec4_scale(mat.col[2], transform->scale);
     mat.col[3] = (vec4s){ .x = transform->pos.x, .y = transform->pos.y, .z = transform->pos.z, .w = 1.0f };
     return mat;
 }

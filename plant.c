@@ -39,13 +39,13 @@ f32 branch = 0.2f;
 PlantShape *plant_step(PlantShape prev, PlantShape *shapes, f32 angle, u32 gen) {
     if (gen > 6)
         return shapes;
-    vec3s dir = glms_vec3_scale(
-        glms_vec3_rotate(GLMS_YUP, angle, GLMS_ZUP), 1.0f / ((float)gen + 1.0f)
+    vec3s dir = vec3_scale(
+        vec3_rotate(GLMS_YUP, angle, GLMS_ZUP), 1.0f / ((float)gen + 1.0f)
     );
     vec3s start = prev.end;
     PlantShape shape = (PlantShape){
         .start = start,
-        .end = glms_vec3_add(start, dir),
+        .end = vec3_add(start, dir),
         .width = .1f
     };
     (*shapes++) = shape;
@@ -98,17 +98,17 @@ PlantMesh plant_meshify(PlantTemplate *plant, Allocator* allocator) {
     u32 vi = 0, ii = 0;
     for (u32 i = 0; i < plant->n_shapes; i++) {
         PlantShape s = plant->shapes[i];
-        vec3s dir = glms_vec3_normalize(glms_vec3_sub(s.start, s.end));
+        vec3s dir = vec3_normalize(vec3_sub(s.start, s.end));
         vec3s right = fabsf(dir.y) > 0.995
                         ? (vec3s){ .x = 1.0f }
-                        : glms_vec3_normalize((vec3s){ .x = -dir.z, .z = dir.x });
-        right = glms_vec3_scale(right, 0.5f * s.width);
+                        : vec3_normalize((vec3s){ .x = -dir.z, .z = dir.x });
+        right = vec3_scale(right, 0.5f * s.width);
 
         i32 r = vi;
-        vertices[vi++] = (Vertex){ .position = glms_vec3_add(s.start, right) };
-        vertices[vi++] = (Vertex){ .position = glms_vec3_add(s.end, right) };
-        vertices[vi++] = (Vertex){ .position = glms_vec3_sub(s.start, right) };
-        vertices[vi++] = (Vertex){ .position = glms_vec3_sub(s.end, right) };
+        vertices[vi++] = (Vertex){ .position = vec3_add(s.start, right) };
+        vertices[vi++] = (Vertex){ .position = vec3_add(s.end, right) };
+        vertices[vi++] = (Vertex){ .position = vec3_sub(s.start, right) };
+        vertices[vi++] = (Vertex){ .position = vec3_sub(s.end, right) };
         indices[ii++] = r + 0;
         indices[ii++] = r + 1;
         indices[ii++] = r + 2;

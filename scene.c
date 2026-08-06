@@ -24,17 +24,17 @@ typedef enum {
 
 struct Transform transform_calculate_world(struct Transform parent, struct Transform local) {
     return (struct Transform){
-      .pos = glms_vec3_add(parent.pos, glms_quat_rotatev(parent.rot, glms_vec3_scale(local.pos, parent.scale))),
-      .rot = glms_quat_mul(parent.rot, local.rot),
+      .pos = vec3_add(parent.pos, quat_rotatev(parent.rot, vec3_scale(local.pos, parent.scale))),
+      .rot = quat_mul(parent.rot, local.rot),
       .scale = parent.scale * local.scale,
     };
 }
 
 struct Transform transform_calculate_local(struct Transform parent, struct Transform world) {
-    quats parent_inv_rot = glms_quat_inv(parent.rot);
+    quats parent_inv_rot = quat_inv(parent.rot);
     return (struct Transform){
-      .pos = glms_vec3_scale(glms_quat_rotatev(parent_inv_rot, glms_vec3_sub(world.pos, parent.pos)), 1.0f / parent.scale),
-      .rot = glms_quat_mul(parent_inv_rot, world.rot),
+      .pos = vec3_scale(quat_rotatev(parent_inv_rot, vec3_sub(world.pos, parent.pos)), 1.0f / parent.scale),
+      .rot = quat_mul(parent_inv_rot, world.rot),
       .scale = world.scale / parent.scale,
     };
 }
@@ -43,7 +43,7 @@ void entity_transform_apply(Entity* entity, Entity* parent, EntityTransformUpdat
     if (update == ETU_LOCAL)
     {
         entity->transform.world = parent ? transform_calculate_world(parent->transform.world, entity->transform.local) : entity->transform.local;
-        entity->transform._matrix = glms_mat4_from_transform(&entity->transform.world);
+        entity->transform._matrix = mat4_from_transform(&entity->transform.world);
     }
     else
     {
@@ -86,13 +86,13 @@ EntityHandle _scene_create_entity(Scene* scene, EntityHandle handle) {
 
     if (entity_has(entity, CT_Transform)) {
         if (entity->transform.local.scale == 0.0f) {
-            entity->transform.world.rot = glms_quat_normalize(entity->transform.world.rot);
+            entity->transform.world.rot = quat_normalize(entity->transform.world.rot);
             if (entity->transform.world.scale == 0.0f) entity->transform.world.scale = 1.0f;
             entity_transform_apply_world(entity);
-            entity->transform._matrix = glms_mat4_from_transform(&entity->transform.world);
+            entity->transform._matrix = mat4_from_transform(&entity->transform.world);
         }
         else  {
-            entity->transform.local.rot = glms_quat_normalize(entity->transform.local.rot);
+            entity->transform.local.rot = quat_normalize(entity->transform.local.rot);
             if (entity->transform.local.scale == 0.0f) entity->transform.local.scale = 1.0f;
             entity_transform_apply_local(entity);
         }

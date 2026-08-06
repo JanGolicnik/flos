@@ -20,6 +20,7 @@
 #include <ripple/ripple.h>
 #include <ripple/ripple_widgets.h>
 
+#define CGLM_OMIT_NS_FROM_STRUCT_API
 #define CGLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <cglm/struct.h>
 

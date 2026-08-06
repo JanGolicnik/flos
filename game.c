@@ -40,22 +40,22 @@ void game_update_player(Scene* scene) {
 
     Entity* planet = scene_get_entity(scene, phys->planet);
 
-    vec3s target_up = glms_normalize(glms_vec3_sub(world->pos, planet->transform.world.pos));
-    vec3s curr_up = glms_quat_rotatev(world->rot, GLMS_YUP);
-    vec3s up = glms_normalize(glms_vec3_lerp(curr_up, target_up, 1.0f - expf(-10.0f * game.dt)));
+    vec3s target_up = glms_normalize(vec3_sub(world->pos, planet->transform.world.pos));
+    vec3s curr_up = quat_rotatev(world->rot, GLMS_YUP);
+    vec3s up = glms_normalize(vec3_lerp(curr_up, target_up, 1.0f - expf(-10.0f * game.dt)));
 
-    quats align = glms_quat_from_vecs(curr_up, up);
-    world->rot = glms_quat_normalize(glms_quat_mul(align, world->rot));
+    quats align = quat_from_vecs(curr_up, up);
+    world->rot = quat_normalize(quat_mul(align, world->rot));
 
     f32 yaw_change = -window.mouse.dx * 0.01;
     quats yaw = glms_quatv(yaw_change, up);
-    world->rot = glms_quat_normalize(glms_quat_mul(yaw, world->rot));
+    world->rot = quat_normalize(quat_mul(yaw, world->rot));
 
     f32 speed  = window.keys[KEY_HELD][KEY_SHIFT] ? 2.0f : 1.0f;
     f32 move_x = window.keys[KEY_HELD][KEY_A] - window.keys[KEY_HELD][KEY_D];
     f32 move_z = window.keys[KEY_HELD][KEY_W] - window.keys[KEY_HELD][KEY_S];
 
-    vec3s move_xz = glms_vec3_scale((move_x != 0.0f || move_z != 0.0f) ?(vec3s){{ move_x, 0.0f, move_z }} : GLMS_VEC3_ZERO, speed);
+    vec3s move_xz = vec3_scale((move_x != 0.0f || move_z != 0.0f) ?(vec3s){{ move_x, 0.0f, move_z }} : GLMS_VEC3_ZERO, speed);
 
     if (window.keys[KEY_HELD][KEY_SPACE] && phys->on_ground) {
         phys->vel.y = 2.0f;
@@ -72,18 +72,18 @@ void game_update_player(Scene* scene) {
 
         child->camera.pitch = clamp(child->camera.pitch + window.mouse.dy * 0.01, -M_PI * 0.5, M_PI * 0.5);
 
-        local->rot = glms_quat_mul(glms_quatv(child->camera.pitch, GLMS_XUP), glms_quatv(M_PI, GLMS_YUP));
+        local->rot = quat_mul(glms_quatv(child->camera.pitch, GLMS_XUP), glms_quatv(M_PI, GLMS_YUP));
         entity_transform_apply_local(child);
 
         if (window.keys[KEY_PRESSED][KEY_M1]) {
             struct Transform* world = &child->transform.world;
-            vec3s forward = glms_vec3_scale(glms_quat_rotatev(world->rot, GLMS_ZUP), -1.0f);
+            vec3s forward = vec3_scale(quat_rotatev(world->rot, GLMS_ZUP), -1.0f);
             f32 t1, t2;
             f32 closest_dist = 99999.0f;
             EntityIter planet_iter = { .include = CT_Planet | CT_Transform };
             while (scene_next_entity(scene, &planet_iter)) {
                 struct Transform planet_world = planet_iter.entity->transform.world;
-                bool clicked = glms_ray_sphere(world->pos, forward,
+                bool clicked = ray_sphere(world->pos, forward,
                     (vec4s){
                         .x = planet_world.pos.x,
                         .y = planet_world.pos.y,
@@ -117,20 +117,20 @@ void game_update_physics(Scene* scene) {
             max(phys->vel.y, 0.0f) :
             (phys->vel.y + planet->planet.gravity * game.dt);
 
-        vec3s right   = glms_vec3_scale(glms_quat_rotatev(world->rot, GLMS_XUP), phys->vel.x);
-        vec3s up      = glms_vec3_scale(glms_quat_rotatev(world->rot, GLMS_YUP), phys->vel.y);
-        vec3s forward = glms_vec3_scale(glms_quat_rotatev(world->rot, GLMS_ZUP), phys->vel.z);
+        vec3s right   = vec3_scale(quat_rotatev(world->rot, GLMS_XUP), phys->vel.x);
+        vec3s up      = vec3_scale(quat_rotatev(world->rot, GLMS_YUP), phys->vel.y);
+        vec3s forward = vec3_scale(quat_rotatev(world->rot, GLMS_ZUP), phys->vel.z);
 
-        vec3s vel  = glms_vec3_add(right, glms_vec3_add(up, forward));
-        world->pos = glms_vec3_add(world->pos, glms_vec3_scale(vel, game.dt));
+        vec3s vel  = vec3_add(right, vec3_add(up, forward));
+        world->pos = vec3_add(world->pos, vec3_scale(vel, game.dt));
 
-        vec3s to = glms_vec3_sub(world->pos, planet->transform.world.pos);
-        f32 dist = glms_vec3_norm(to);
+        vec3s to = vec3_sub(world->pos, planet->transform.world.pos);
+        f32 dist = vec3_norm(to);
         phys->on_ground = dist < planet->transform.world.scale + 0.01f;
         if (phys->on_ground && phys->vel.y < 0.0f) {
-            world->pos = glms_vec3_add(
+            world->pos = vec3_add(
                 planet->transform.world.pos,
-                glms_vec3_scale(glms_vec3_divs(to, dist), planet->transform.world.scale)
+                vec3_scale(vec3_divs(to, dist), planet->transform.world.scale)
             );
         }
 
@@ -202,14 +202,14 @@ void game_init(void) {
 
     for (u32 i = 0; i < 1000; i++) {
         vec3s pos = random_on_sphere();
-        vec3s up = glms_vec3_normalize(pos);
+        vec3s up = vec3_normalize(pos);
         scene_create_entity(scene, CT_Transform | CT_Mesh | CT_Plant,
             .name = sstr("plant"),
             .parent = planet,
             .transform.world = {
-                .pos = glms_vec3_scale(pos, 1.0f),
+                .pos = vec3_scale(pos, 1.0f),
                 .scale = mrw_random_f32(1.0, 3.0) * 0.03,
-                .rot = glms_quat_mul(glms_quatv(mrw_random_f32(-M_PI, M_PI), up), glms_quat_from_vecs(GLMS_YUP, up)),
+                .rot = quat_mul(glms_quatv(mrw_random_f32(-M_PI, M_PI), up), quat_from_vecs(GLMS_YUP, up)),
             },
             .mesh = { game.plant_mesh },
         );
@@ -232,13 +232,13 @@ void game_init(void) {
 }
 
 static mat4s basis_from_up(vec3s up, vec3s hint) {
-    if (fabsf(glms_vec3_dot(up, glms_vec3_normalize(hint))) > 0.9999f)
-        hint = glms_vec3_ortho(up);
+    if (fabsf(vec3_dot(up, vec3_normalize(hint))) > 0.9999f)
+        hint = vec3_ortho(up);
 
-    vec3s x = glms_vec3_normalize(glms_vec3_cross(hint, up));
-    vec3s z = glms_vec3_cross(x, up);
+    vec3s x = vec3_normalize(vec3_cross(hint, up));
+    vec3s z = vec3_cross(x, up);
 
-    mat4s m = glms_mat4_identity();
+    mat4s m = mat4_identity();
     m.col[0] = glms_vec4(x, 0.0f);
     m.col[1] = glms_vec4(up, 0.0f);
     m.col[2] = glms_vec4(z, 0.0f);

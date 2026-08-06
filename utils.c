@@ -6,7 +6,7 @@ static float random_gaussian(void) {
 }
 
 vec3s random_on_sphere(void) {
-    return glms_vec3_normalize((vec3s){
+    return vec3_normalize((vec3s){
         .x = random_gaussian(),
         .y = random_gaussian(),
         .z = random_gaussian(),
