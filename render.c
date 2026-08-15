@@ -3,9 +3,9 @@
 #include "base.c"
 
 STRUCT(Mesh) {
-    WGPUBuffer vertex_buffer;
-    WGPUBuffer index_buffer;
-    WGPUDynamicBuffer instance_buffer;
+    ReniBuffer vertex_buffer;
+    ReniBuffer index_buffer;
+    ReniBuffer instance_buffer;
     VEKTOR(u8) instance_data;
     u32 shader;
 };
@@ -23,13 +23,9 @@ typedef GENARR_ITER_ALIAS(Mesh, mesh) MeshIter;
 
 struct {
     u32 width, height;
-
-    WGPUInstance instance;
-    WGPUAdapter adapter;
-    WGPUDevice device;
-    WGPUQueue queue;
-    WGPUSurface surface;
-    WGPUTextureFormat surface_format;
+    Reni _reni;
+    Reni* reni;
+    ReniSurface surface;
 
     struct {
         WGPUBindGroupLayout layout;
@@ -86,23 +82,17 @@ MeshHandle render_mesh_create(u8Slice vertices, u8Slice indices, usize instance_
 
 void render_mesh_re_create(MeshHandle old, u8Slice vertices, u8Slice indices, usize instance_size, u32 shader) {
     Mesh* mesh = genarr_get(renderer.meshes, old);
-
-    wgpuBufferRelease(mesh->vertex_buffer);
-    wgpuBufferRelease(mesh->index_buffer);
-    wgpuDynamicBufferRelease(&mesh->instance_buffer);
-
-    mesh->vertex_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, vertices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex);
-    mesh->index_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, indices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index);
-    mesh->instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex);
+    reni_buffer_write(renderer.reni, mesh->vertex_buffer, vertices, 0);
+    reni_buffer_write(renderer.reni, mesh->index_buffer, indices, 0);
     mesh->shader = shader;
 }
 
 void render_mesh_free(MeshHandle handle) {
     Mesh* mesh = genarr_get(renderer.meshes, handle);
 
-    wgpuBufferRelease(mesh->vertex_buffer);
-    wgpuBufferRelease(mesh->index_buffer);
-    wgpuDynamicBufferRelease(&mesh->instance_buffer);
+    reni_release_buffer(renderer.reni, mesh->vertex_buffer);
+    reni_release_buffer(renderer.reni, mesh->index_buffer);
+    reni_release_buffer(renderer.reni, mesh->instance_buffer);
     vektor_free(mesh->instance_data);
 
     genarr_remove(renderer.meshes, handle);
@@ -375,50 +365,22 @@ void render_init_atmosphere(void) {
     wgpuShaderModuleRelease(shader_module);
 }
 
+static void render_error_callback(str msg)
+{
+    mrw_debug("Render error: {}", msg);
+}
+
 void render_init(void) {
-    renderer.instance = wgpuCreateInstance(nullptr);
-    if (!renderer.instance)
-        mrw_error("Failed to create WebGPU instance.");
-    else
-        mrw_debug("Successfully created the WebGPU instance!");
-
-    renderer.adapter = get_adapter(renderer.instance, (WGPURequestAdapterOptions) {
-        .powerPreference = WGPUPowerPreference_HighPerformance
+    renderer._reni = reni_create_reni((ReniConfig){
+        .name = sstr("Reni !"),
+        .error_callback = render_error_callback,
+        .allocator = memory.stable,
+        .frame_allocator = memory.frame
     });
-    if (!renderer.adapter)
-        mrw_error("Failed to get the adapter!");
-    else
-        mrw_debug("Successfully got the adapter!");
+    renderer.reni = &renderer._reni;
+    renderer.surface = reni_create_surface(renderer.reni, (ReniSurfaceConfig) { window.window });
 
-    renderer.device = get_device(renderer.adapter);
-    if (!renderer.device)
-        mrw_error("Failed to get the device!");
-    else
-        mrw_debug("Succesfully got the device!");
-
-    renderer.queue = wgpuDeviceGetQueue(renderer.device);
-    if (!renderer.queue)
-        mrw_error("Failed to get the queue!");
-    else
-        mrw_debug("Succesfully got the queue!");
-
-    renderer.surface = get_surface(renderer.instance
-    #ifndef __EMSCRIPTEN__
-        , window.window
-    #endif
-    );
-
-    if (!renderer.surface)
-        mrw_error("Failed to get the surface");
-    else
-        mrw_debug("Succefully got the surface!");
-
-    WGPUSurfaceCapabilities caps;
-    wgpuSurfaceGetCapabilities(renderer.surface, renderer.adapter, &caps);
-    renderer.surface_format = caps.formats[0];
-    mrw_debug("Preferred surface format is {}", (u32)renderer.surface_format);
-
-    renderer.shader_data.buffer = wgpuDeviceCreateBuffer(renderer.device, &(WGPUBufferDescriptor){
+    renderer.shader_data.buffer = reni_create_buffer(renderer.reni, (ReniBufferConfig){
         .size = sizeof(renderer.shader_data.data),
         .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform
     });
@@ -488,17 +450,7 @@ void renderer_reconfigure_atmosphere_bind_group(void) {
 }
 
 void renderer_reconfigure(void) {
-    wgpuSurfaceConfigure(renderer.surface,
-        &(WGPUSurfaceConfiguration){
-            .width = renderer.width,
-            .height = renderer.height,
-            .format = renderer.surface_format,
-            .usage = WGPUTextureUsage_RenderAttachment,
-            .device = renderer.device,
-            .presentMode = WGPUPresentMode_Mailbox
-        }
-    );
-
+    reni_surface_update(reni, )
     if (renderer.depth.texture) {
         wgpuTextureRelease(renderer.depth.texture);
         wgpuTextureViewRelease(renderer.depth.view);

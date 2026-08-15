@@ -50,8 +50,8 @@ typedef versors quats;
 #ifndef FLOS_SCENE
 #include "scene.c"
 
-// #ifndef FLOS_RENDER_BG
-// #include "render_bg.c"
+#ifndef FLOS_RENI
+#include "reni.c"
 
 #ifndef FLOS_RENDER
 #include "render.c"
@@ -62,6 +62,7 @@ typedef versors quats;
 #ifndef FLOS_GAME
 #include "game.c"
 
+#endif
 #endif
 #endif
 #endif
