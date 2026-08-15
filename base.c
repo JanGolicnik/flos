@@ -50,8 +50,8 @@ typedef versors quats;
 #ifndef FLOS_SCENE
 #include "scene.c"
 
-#ifndef FLOS_RENDER_BG
-#include "render_bg.c"
+// #ifndef FLOS_RENDER_BG
+// #include "render_bg.c"
 
 #ifndef FLOS_RENDER
 #include "render.c"

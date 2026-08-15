@@ -49,6 +49,8 @@ FetchContent_MakeAvailable(${THIRD_PARTY_DEPS})
 
 if(NOT EMSCRIPTEN)
     add_subdirectory(glfw)
+    set_target_properties(glfw PROPERTIES EXPORT_COMPILE_COMMANDS OFF)
+
     add_subdirectory(webgpu)
 endif()
 
