@@ -17,7 +17,8 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
         "WEBGPU_BACKEND": "DAWN",
         "WEBGPU_BUILD_FROM_SOURCE": "ON",
-        "DAWN_USE_WAYLAND": "ON"
+        "DAWN_USE_WAYLAND": "ON",
+        "DAWN_USE_X11": "OFF"
       }
     },
     {
