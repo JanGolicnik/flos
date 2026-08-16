@@ -1,4 +1,5 @@
-#include "webgpu/webgpu.h"
+#include "cglm/io.h"
+#include "marrow/marrow.h"
 #define FLOS_RENDER
 #include "base.c"
 
@@ -7,6 +8,7 @@ STRUCT(Mesh) {
     ReniBuffer index_buffer;
     ReniBuffer instance_buffer;
     VEKTOR(u8) instance_data;
+    u32 n_instances;
     u32 shader;
 };
 
@@ -15,8 +17,8 @@ STRUCT(AtmospherePlanet) {
     f32 radius;
 };
 
-str common_includes[] = {
-    sstr("./res/shaders/common.wgsl")
+cstr common_includes[] = {
+    "./res/shaders/common.wgsl"
 };
 
 typedef GENARR_ITER_ALIAS(Mesh, mesh) MeshIter;
@@ -28,8 +30,8 @@ struct {
     ReniSurface surface;
 
     struct {
-        WGPUBindGroupLayout layout;
-        WGPUBindGroup bind_group;
+        ReniBindingLayout layout;
+        ReniBinding binding;
         ReniBuffer buffer;
         struct {
             mat4 camera_matrix;
@@ -48,18 +50,18 @@ struct {
     } depth;
 
     struct {
-        WGPURenderPipeline pipeline;
+        ReniShader shader;
     } planets;
 
     struct {
-        WGPURenderPipeline pipeline;
+        ReniShader shader;
     } plants;
 
     struct {
-        WGPUBindGroupLayout layout;
-        WGPUBindGroup bind_group;
+        ReniBindingLayout layout;
+        ReniBinding binding;
         ReniBuffer buffer;
-        WGPURenderPipeline pipeline;
+        ReniShader shader;
     } atmosphere;
 
     GENARR(Mesh) meshes;
@@ -97,240 +99,168 @@ void render_mesh_free(MeshHandle handle) {
 }
 
 void render_init_planets(void) {
-    WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/shaders/planet.wgsl", (strSlice)array_slice(common_includes), memory.frame);
-
-    WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(renderer.device,
-        &(WGPUPipelineLayoutDescriptor) {
-            .bindGroupLayoutCount = 1,
-            .bindGroupLayouts = (WGPUBindGroupLayout[]){
-                renderer.shader_data.layout
-            }
-        }
-    );
-
-    renderer.planets.pipeline = wgpuDeviceCreateRenderPipeline(renderer.device,
-        &(WGPURenderPipelineDescriptor) {
-            .label = WEBGPU_STR("planet shader"),
-            .layout = layout,
-            .vertex = {
-                .module = shader_module,
-                .entryPoint = WEBGPU_STR("vs_main"),
-                .bufferCount = 2,
-                .buffers = (WGPUVertexBufferLayout[]) {
-                    {
-                        .arrayStride = sizeof(Vertex),
-                        .stepMode = WGPUVertexStepMode_Vertex,
-                        .attributeCount = 2,
-                        .attributes = (WGPUVertexAttribute[]) {
-                            {
-                                .shaderLocation = 0,
-                                .format = WGPUVertexFormat_Float32x3,
-                                .offset = 0
-                            },
-                            {
-                                .shaderLocation = 1,
-                                .format = WGPUVertexFormat_Float32x3,
-                                .offset = offsetof(Vertex, normal)
-                            }
-                        }
-                    },
-                    {
-                        .arrayStride = sizeof(PlanetInstance),
-                        .stepMode = WGPUVertexStepMode_Instance,
-                        .attributeCount = 6,
-                        .attributes = (WGPUVertexAttribute[]) {
-                            {
-                                .shaderLocation = 3,
-                                .format = WGPUVertexFormat_Float32x4,
-                                .offset = offsetof(PlanetInstance, mat.col[0])
-                            },
-                            {
-                                .shaderLocation = 4,
-                                .format = WGPUVertexFormat_Float32x4,
-                                .offset = offsetof(PlanetInstance, mat.col[1])
-                            },
-                            {
-                                .shaderLocation = 5,
-                                .format = WGPUVertexFormat_Float32x4,
-                                .offset = offsetof(PlanetInstance, mat.col[2])
-                            },
-                            {
-                                .shaderLocation = 6,
-                                .format = WGPUVertexFormat_Float32x4,
-                                .offset = offsetof(PlanetInstance, mat.col[3])
-                            },
-                            {
-                                .shaderLocation = 7,
-                                .format = WGPUVertexFormat_Float32,
-                                .offset = offsetof(PlanetInstance, shell_t)
-                            },
-                            {
-                                .shaderLocation = 8,
-                                .format = WGPUVertexFormat_Float32,
-                                .offset = offsetof(PlanetInstance, scale)
-                            }
-                        }
-                    }
+    renderer.planets.shader = reni_create_shader(renderer.reni, (ReniShaderConfig){
+        .name = sstr("planet shader"),
+        .source.file = {
+            .path = "./res/shaders/planet.wgsl",
+            .includes = array_slice(common_includes)
+        },
+        .layouts[0] = renderer.shader_data.layout,
+        .vertex = {
+            .entry = sstr("vs_main"),
+            .buffers[0] = {
+                .stride = sizeof(Vertex),
+                .attributes[0] = {
+                    .location = 0,
+                    .offset = offsetof(Vertex, position),
+                    .format = ReniVertexFormat_Float32x3,
+                },
+                .attributes[1] = {
+                    .location = 1,
+                    .offset = offsetof(Vertex, normal),
+                    .format = ReniVertexFormat_Float32x3,
                 }
             },
-            .fragment = &(WGPUFragmentState) {
-                .module = shader_module,
-                .entryPoint = WEBGPU_STR("fs_main"),
-                .targetCount = 1,
-                .targets = &(WGPUColorTargetState) {
-                    .format = renderer.surface_format,
-                    .writeMask = WGPUColorWriteMask_All,
-                    .blend = &wgpu_normal_blend_state
+            .buffers[1] = {
+                .stride = sizeof(PlanetInstance),
+                .attributes[0] = {
+                    .location = 3,
+                    .format = ReniVertexFormat_Float32x4,
+                    .offset = offsetof(PlanetInstance, mat.col[0])
+                },
+                .attributes[1] = {
+                    .location = 4,
+                    .format = ReniVertexFormat_Float32x4,
+                    .offset = offsetof(PlanetInstance, mat.col[1])
+                },
+                .attributes[2] = {
+                    .location = 5,
+                    .format = ReniVertexFormat_Float32x4,
+                    .offset = offsetof(PlanetInstance, mat.col[2])
+                },
+                .attributes[3] = {
+                    .location = 6,
+                    .format = ReniVertexFormat_Float32x4,
+                    .offset = offsetof(PlanetInstance, mat.col[3])
+                },
+                .attributes[4] = {
+                    .location = 7,
+                    .format = ReniVertexFormat_Float32,
+                    .offset = offsetof(PlanetInstance, shell_t)
+                },
+                .attributes[5] = {
+                    .location = 8,
+                    .format = ReniVertexFormat_Float32,
+                    .offset = offsetof(PlanetInstance, scale)
                 }
-            },
-            .multisample = { .count = 1, .mask = ~0u },
-            .primitive = {
-                // .topology = WGPUPrimitiveTopology_LineStrip,
-                .topology = WGPUPrimitiveTopology_TriangleList,
-                // .stripIndexFormat = WGPUIndexFormat_Uint16,
-                .stripIndexFormat = WGPUIndexFormat_Undefined,
-                .frontFace = WGPUFrontFace_CCW,
-                .cullMode = WGPUCullMode_None
-            },
-            .depthStencil = &(WGPUDepthStencilState) {
-                .format = WGPUTextureFormat_Depth24Plus,
-                .depthWriteEnabled = true,
-                .depthCompare = WGPUCompareFunction_Less,
-                .stencilFront = wgpu_stencil_keep_always,
-                .stencilBack = wgpu_stencil_keep_always,
-                .stencilReadMask = ~0,
-                .stencilWriteMask = ~0,
+            }
+        },
+        .fragment = {
+            .entry = sstr("fs_main"),
+            .depth_format = ReniTextureFormat_Depth24Plus,
+            .targets[0] = {
+                .format = reni_surface_get_format(renderer.reni, renderer.surface),
+                .blend_state = {
+                    .color = RENI_BLEND_STATE_BLEND,
+                    .alpha = RENI_BLEND_STATE_OVERWRITE
+                }
             }
         }
-    );
-
-    wgpuPipelineLayoutRelease(layout);
-    wgpuShaderModuleRelease(shader_module);
+    });
 }
 
 void render_init_plants(void) {
-    WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/shaders/plant.wgsl", (strSlice)array_slice(common_includes), memory.frame);
-
-    WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(renderer.device, &(WGPUPipelineLayoutDescriptor) {
-        .bindGroupLayoutCount = 1,
-        .bindGroupLayouts = (WGPUBindGroupLayout[]){
-            renderer.shader_data.layout
-        }
-    });
-
-    renderer.plants.pipeline = wgpuDeviceCreateRenderPipeline(renderer.device, &(WGPURenderPipelineDescriptor) {
-        .label = WEBGPU_STR("plant shader"),
-        .layout = layout,
+    renderer.plants.shader = reni_create_shader(renderer.reni, (ReniShaderConfig){
+        .name = sstr("plant shader"),
+        .source.file = {
+            .path = "./res/shaders/plant.wgsl",
+            .includes = array_slice(common_includes)
+        },
+        .layouts[0] = renderer.shader_data.layout,
         .vertex = {
-            .module = shader_module,
-            .entryPoint = WEBGPU_STR("vs_main"),
-            .bufferCount = 2,
-            .buffers = (WGPUVertexBufferLayout[]) {
-                {
-                    .arrayStride = sizeof(Vertex),
-                    .stepMode = WGPUVertexStepMode_Vertex,
-                    .attributeCount = 2,
-                    .attributes = (WGPUVertexAttribute[]) {
-                        {
-                            .shaderLocation = 0,
-                            .format = WGPUVertexFormat_Float32x3,
-                            .offset = 0
-                        },
-                        {
-                            .shaderLocation = 1,
-                            .format = WGPUVertexFormat_Float32x3,
-                            .offset = offsetof(Vertex, normal)
-                        }
-                    }
+            .entry = sstr("vs_main"),
+            .buffers[0] = {
+                .stride = sizeof(Vertex),
+                .attributes[0] = {
+                    .location = 0,
+                    .offset = offsetof(Vertex, position),
+                    .format = ReniVertexFormat_Float32x3,
                 },
-                {
-                    .arrayStride = sizeof(Instance),
-                    .stepMode = WGPUVertexStepMode_Instance,
-                    .attributeCount = 4,
-                    .attributes = (WGPUVertexAttribute[]) {
-                        {
-                            .shaderLocation = 3,
-                            .format = WGPUVertexFormat_Float32x4,
-                            .offset = offsetof(Instance, mat.col[0])
-                        },
-                        {
-                            .shaderLocation = 4,
-                            .format = WGPUVertexFormat_Float32x4,
-                            .offset = offsetof(Instance, mat.col[1])
-                        },
-                        {
-                            .shaderLocation = 5,
-                            .format = WGPUVertexFormat_Float32x4,
-                            .offset = offsetof(Instance, mat.col[2])
-                        },
-                        {
-                            .shaderLocation = 6,
-                            .format = WGPUVertexFormat_Float32x4,
-                            .offset = offsetof(Instance, mat.col[3])
-                        }
-                    }
+                .attributes[1] = {
+                    .location = 1,
+                    .offset = offsetof(Vertex, normal),
+                    .format = ReniVertexFormat_Float32x3,
+                }
+            },
+            .buffers[1] = {
+                .stride = sizeof(PlanetInstance),
+                .attributes[0] = {
+                    .location = 3,
+                    .format = ReniVertexFormat_Float32x4,
+                    .offset = offsetof(PlanetInstance, mat.col[0])
+                },
+                .attributes[1] = {
+                    .location = 4,
+                    .format = ReniVertexFormat_Float32x4,
+                    .offset = offsetof(PlanetInstance, mat.col[1])
+                },
+                .attributes[2] = {
+                    .location = 5,
+                    .format = ReniVertexFormat_Float32x4,
+                    .offset = offsetof(PlanetInstance, mat.col[2])
+                },
+                .attributes[3] = {
+                    .location = 6,
+                    .format = ReniVertexFormat_Float32x4,
+                    .offset = offsetof(PlanetInstance, mat.col[3])
                 }
             }
         },
-        .fragment = &(WGPUFragmentState) {
-            .module = shader_module,
-            .entryPoint = WEBGPU_STR("fs_main"),
-            .targetCount = 1,
-            .targets = &(WGPUColorTargetState) {
-                    .format = renderer.surface_format,
-                    .writeMask = WGPUColorWriteMask_All,
-                    .blend = &wgpu_normal_blend_state
+        .fragment = {
+            .entry = sstr("fs_main"),
+            .depth_format = ReniTextureFormat_Depth24Plus,
+            .targets[0] = {
+                .format = reni_surface_get_format(renderer.reni, renderer.surface),
+                .blend_state = {
+                    .color = RENI_BLEND_STATE_BLEND,
+                    .alpha = RENI_BLEND_STATE_OVERWRITE
+                }
             }
-        },
-        .multisample = { .count = 1, .mask = ~0u },
-        .primitive = {
-            .topology = WGPUPrimitiveTopology_TriangleList,
-            .stripIndexFormat = WGPUIndexFormat_Undefined,
-            .frontFace = WGPUFrontFace_CCW,
-            .cullMode = WGPUCullMode_None
-        },
-        .depthStencil = &(WGPUDepthStencilState) {
-            .format = WGPUTextureFormat_Depth24Plus,
-            .depthWriteEnabled = true,
-            .depthCompare = WGPUCompareFunction_Less,
-            .stencilFront = wgpu_stencil_keep_always,
-            .stencilBack = wgpu_stencil_keep_always,
-            .stencilReadMask = ~0,
-            .stencilWriteMask = ~0,
         }
     });
-
-    wgpuPipelineLayoutRelease(layout);
-    wgpuShaderModuleRelease(shader_module);
 }
 
 void render_init_atmosphere(void) {
-    WGPUShaderModule shader_module = load_shader_module_from_file(renderer.device, "./res/shaders/atmosphere.wgsl", (strSlice)array_slice(common_includes), memory.frame);
-
-    renderer.atmosphere.layout = wgpuDeviceCreateBindGroupLayout(renderer.device, &(WGPUBindGroupLayoutDescriptor) {
-        .entryCount = 2,
-        .entries = (WGPUBindGroupLayoutEntry[]) {
-            {
-                .binding = 0,
-                .visibility = WGPUShaderStage_Fragment,
-                .buffer.type = WGPUBufferBindingType_ReadOnlyStorage,
-            },
-            {
-                .binding = 1,
-                .visibility = WGPUShaderStage_Fragment,
-                .texture = {
-                    .sampleType = WGPUTextureSampleType_Depth,
-                    .viewDimension = WGPUTextureViewDimension_2D,
-                },
-            }
-        }
+    renderer.atmosphere.layout = reni_create_binding_layout(renderer.reni, (ReniBindingLayoutConfig){
+       .name = sstr("atmosphere bindinding"),
+       .entries[0] = {
+           .visibility = ReniShaderStage_Fragment,
+           .buffer.type = ReniBufferBindingType_ReadOnlyStorage
+       },
+       .entries[1] = {
+           .visibility = ReniShaderStage_Fragment,
+           .texture.type = ReniSampleType_Depth
+       },
     });
 
-    WGPUPipelineLayout layout = wgpuDeviceCreatePipelineLayout(renderer.device, &(WGPUPipelineLayoutDescriptor) {
-        .bindGroupLayoutCount = 2,
-        .bindGroupLayouts = (WGPUBindGroupLayout[]){
-            renderer.shader_data.layout,
-            renderer.atmosphere.layout
+    renderer.atmosphere.shader = reni_create_shader(renderer.reni, (ReniShaderConfig){
+        .name = sstr("atmosphere shader"),
+        .source.file = {
+            .path = "./res/shaders/atmosphere.wgsl",
+            .includes = array_slice(common_includes)
+        },
+        .layouts[0] = renderer.shader_data.layout,
+        .layouts[1] = renderer.atmosphere.layout,
+        .vertex.entry = sstr("vs_main"),
+        .fragment = {
+            .entry = sstr("fs_main"),
+            .targets[0] = {
+                .format = reni_surface_get_format(renderer.reni, renderer.surface),
+                .blend_state = {
+                    .color = RENI_BLEND_STATE_ADD,
+                    .alpha = RENI_BLEND_STATE_OVERWRITE
+                }
+            }
         }
     });
 
@@ -338,32 +268,6 @@ void render_init_atmosphere(void) {
         .name = sstr("atmosphere buffer"),
         .usage = ReniBufferUsage_CopyDst | ReniBufferUsage_Storage
     });
-
-    renderer.atmosphere.pipeline = wgpuDeviceCreateRenderPipeline(renderer.device, &(WGPURenderPipelineDescriptor) {
-        .label = WEBGPU_STR("atmosphere"),
-        .layout = layout,
-        .vertex = {
-            .module = shader_module,
-            .entryPoint = WEBGPU_STR("vs_main"),
-        },
-        .fragment = &(WGPUFragmentState) {
-            .module = shader_module,
-            .entryPoint = WEBGPU_STR("fs_main"),
-            .targetCount = 1,
-            .targets = &(WGPUColorTargetState) {
-                .format = renderer.surface_format,
-                .writeMask = WGPUColorWriteMask_All,
-                .blend = &wgpu_normal_blend_state_add
-            }
-        },
-        .multisample = { .count = 1, .mask = ~0u },
-        .primitive = {
-            .topology = WGPUPrimitiveTopology_TriangleList,
-        },
-    });
-
-    wgpuPipelineLayoutRelease(layout);
-    wgpuShaderModuleRelease(shader_module);
 }
 
 static void render_error_callback(str msg)
@@ -386,27 +290,17 @@ void render_init(void) {
         .usage = ReniBufferUsage_CopyDst | ReniBufferUsage_Uniform
     });
 
-    renderer.shader_data.layout = wgpuDeviceCreateBindGroupLayout(renderer.device, &(WGPUBindGroupLayoutDescriptor) {
-        .entryCount = 1,
-        .entries = &(WGPUBindGroupLayoutEntry) {
-            .binding = 0,
-            .visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment,
-            .buffer = {
-                .type = WGPUBufferBindingType_Uniform,
-                .minBindingSize = sizeof(renderer.shader_data.data)
-            }
+    renderer.shader_data.layout = reni_create_binding_layout(renderer.reni, (ReniBindingLayoutConfig) {
+        .entries[0] = {
+            .visibility = ReniShaderStage_Vertex | ReniShaderStage_Fragment,
+            .buffer.type = ReniBufferBindingType_Uniform,
         }
     });
 
-    renderer.shader_data.bind_group = wgpuDeviceCreateBindGroup(renderer.device, &(WGPUBindGroupDescriptor) {
+    renderer.shader_data.binding = reni_create_binding(renderer.reni, (ReniBindingConfig) {
+        .name = sstr("shader data"),
         .layout = renderer.shader_data.layout,
-        .entryCount = 1,
-        .entries = &(WGPUBindGroupEntry) {
-            .binding = 0,
-            .buffer = renderer.shader_data.buffer,
-            .offset = 0,
-            .size = sizeof(renderer.shader_data.data)
-        }
+        .entries[0].buffer.buffer = renderer.shader_data.buffer
     });
 
     renderer.shader_data.data.atmosphere_height = 1.2f;
@@ -426,36 +320,7 @@ void render_init(void) {
     // ripple_make_active_context(&renderer.ripple_context);
 }
 
-void renderer_reconfigure_atmosphere_bind_group(void) {
-    renderer.atmosphere.bind_group = wgpuDeviceCreateBindGroup(renderer.device, &(WGPUBindGroupDescriptor) {
-        .layout = renderer.atmosphere.layout,
-        .entryCount = 2,
-        .entries = (WGPUBindGroupEntry[]) {
-            {
-                .binding = 0,
-                .buffer = renderer.atmosphere.buffer.data,
-                .size = wgpuDynamicBufferGetSize(&renderer.atmosphere.buffer)
-            },
-            {
-                .binding = 1,
-                .textureView = renderer.depth.view,
-            }
-        }
-    });
-}
-
-void renderer_reconfigure(void) {
-    reni_surface_update(reni, (ReniSurfaceState) {
-        .width = renderer.width,
-        .height = renderer.height,
-    });
-
-    reni_texture_resize(renderer.reni, renderer.depth.texture, width = renderer.width, height = renderer.height);
-
-    renderer_reconfigure_atmosphere_bind_group();
-}
-
-void render_render_meshes(Scene* scene, WGPUCommandEncoder encoder, WGPUTextureView surface_texture_view) {
+void render_render_meshes(Scene* scene, ReniTexture surface_texture) {
     {
         MeshIter mesh_iter = { 0 };
         while (genarr_next_valid(renderer.meshes, &mesh_iter)) {
@@ -496,43 +361,36 @@ void render_render_meshes(Scene* scene, WGPUCommandEncoder encoder, WGPUTextureV
         }
     }
 
-    WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
-        encoder,
-        &(WGPURenderPassDescriptor) {
-            .colorAttachmentCount = 1,
-            .colorAttachments = &(WGPURenderPassColorAttachment) {
-                .view = surface_texture_view,
-                .loadOp = WGPULoadOp_Clear,
-                .storeOp = WGPUStoreOp_Store,
-                .clearValue = (WGPUColor){ 84.0f / 255.0f, 119.0f / 255.0f, 146.0f / 255.0f, 1.0f },
-                .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED
-            },
-            .depthStencilAttachment = &(WGPURenderPassDepthStencilAttachment) {
-                .view = renderer.depth.view,
-                .depthLoadOp = WGPULoadOp_Clear,
-                .depthClearValue = 1.0f,
-                .depthStoreOp = WGPUStoreOp_Store
-            }
+    ReniRenderpass pass = reni_create_renderpass(renderer.reni, (ReniRenderpassConfig) {
+        .targets[0] = {
+            .texture = surface_texture,
+            .clear = true,
+            .clear_value = { 84.0f / 255.0f, 119.0f / 255.0f, 146.0f / 255.0f, 1.0f },
+        },
+        .depth = {
+            .target = renderer.depth.texture,
+            .clear = true,
+            .clear_value = 1.0f,
         }
-    );
+    });
 
     MeshIter iter = { 0 };
     while (genarr_next_valid(renderer.meshes, &iter)) {
         Mesh* mesh = iter.mesh;
-        wgpuRenderPassEncoderSetPipeline(render_pass, iter.mesh->shader == 0 ? renderer.plants.pipeline : renderer.planets.pipeline);
-        wgpuRenderPassEncoderSetBindGroup(render_pass, 0, renderer.shader_data.bind_group, 0, nullptr);
-
-        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, mesh->vertex_buffer, 0, wgpuBufferGetSize(mesh->vertex_buffer));
-        wgpuRenderPassEncoderSetVertexBuffer(render_pass, 1, mesh->instance_buffer.data, 0, wgpuBufferGetSize(mesh->instance_buffer.data));
-        wgpuRenderPassEncoderSetIndexBuffer(render_pass, mesh->index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(mesh->index_buffer));
-        wgpuRenderPassEncoderDrawIndexed(render_pass, wgpuBufferGetSize(mesh->index_buffer) / sizeof(u16), wgpuDynamicBufferGetCount(&mesh->instance_buffer), 0, 0, 0);
+        reni_renderpass_set_shader(renderer.reni, &pass, iter.mesh->shader == 0 ? renderer.plants.shader : renderer.planets.shader);
+        reni_renderpass_set_binding(renderer.reni, &pass, 0, renderer.shader_data.binding);
+        reni_renderpass_draw(renderer.reni, &pass, (ReniDrawConfig) {
+           .vertices = mesh->vertex_buffer,
+           .indices = mesh->index_buffer,
+           .instances = mesh->instance_buffer,
+           .n_instances = mesh->n_instances
+        });
     }
 
-    wgpuRenderPassEncoderEnd(render_pass);
-    wgpuRenderPassEncoderRelease(render_pass);
+    reni_submit_renderpass(renderer.reni, pass);
 }
 
-void render_render_atmosphere(Scene* scene, WGPUCommandEncoder encoder, WGPUTextureView surface_texture_view) {
+void render_render_atmosphere(Scene* scene, ReniTexture surface_texture) {
     u32 n_planets = 0;
 
     {
@@ -552,26 +410,14 @@ void render_render_atmosphere(Scene* scene, WGPUCommandEncoder encoder, WGPUText
     }
     reni_buffer_write(renderer.reni, renderer.atmosphere.buffer, slice_u8_arr(buffer), 0);
 
-    WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
-        encoder,
-        &(WGPURenderPassDescriptor) {
-            .colorAttachmentCount = 1,
-            .colorAttachments = &(WGPURenderPassColorAttachment) {
-                .view = surface_texture_view,
-                .loadOp = WGPULoadOp_Load,
-                .storeOp = WGPUStoreOp_Store,
-                .depthSlice = WGPU_DEPTH_SLICE_UNDEFINED
-            },
-        }
-    );
+    ReniRenderpass pass = reni_create_renderpass(renderer.reni, (ReniRenderpassConfig){ .targets[0].texture = surface_texture });
 
-    wgpuRenderPassEncoderSetPipeline(render_pass, renderer.atmosphere.pipeline);
-    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, renderer.shader_data.bind_group, 0, nullptr);
-    wgpuRenderPassEncoderSetBindGroup(render_pass, 1, renderer.atmosphere.bind_group, 0, nullptr);
-    wgpuRenderPassEncoderDraw(render_pass, 6, 1, 0, 0);
+    reni_renderpass_set_shader(renderer.reni, &pass, renderer.atmosphere.shader);
+    reni_renderpass_set_binding(renderer.reni, &pass, 0, renderer.shader_data.binding);
+    reni_renderpass_set_binding(renderer.reni, &pass, 1, renderer.atmosphere.binding);
+    reni_renderpass_draw(renderer.reni, &pass, (ReniDrawConfig){ .n_vertices = 6, .n_instances = 1 });
 
-    wgpuRenderPassEncoderEnd(render_pass);
-    wgpuRenderPassEncoderRelease(render_pass);
+    reni_submit_renderpass(renderer.reni, pass);
 }
 
 f32 planet_grass_scale = 0.01;
@@ -580,7 +426,12 @@ void render_prepare(Scene* scene) {
     if (window.width != renderer.width || window.height != renderer.height) {
         renderer.width = window.width;
         renderer.height = window.height;
-        renderer_reconfigure();
+        reni_surface_update(renderer.reni, renderer.surface, (ReniSurfaceState){
+            .width = renderer.width,
+            .height = renderer.height,
+        });
+
+        reni_texture_resize(renderer.reni, renderer.depth.texture, renderer.width, renderer.height);
     }
 
     // upload render data
@@ -597,7 +448,7 @@ void render_prepare(Scene* scene) {
         renderer.shader_data.data.res.x = (f32)window.width;
         renderer.shader_data.data.res.y = (f32)window.height;
 
-        wgpuQueueWriteBuffer(renderer.queue, renderer.shader_data.buffer, 0, &renderer.shader_data.data, sizeof(renderer.shader_data.data));
+        reni_buffer_write(renderer.reni, renderer.shader_data.buffer, slice_u8_one(&renderer.shader_data.data), 0);
     }
 }
 
@@ -610,8 +461,8 @@ void render_render(Scene* scene) {
     if (surface.status != ReniSurfaceStatus_SuccessOptimal)
         mrw_error("Surface acquire error {}", (u32)surface.status);
 
-    render_render_meshes(scene, encoder, surface.texture);
-    render_render_atmosphere(scene, encoder, surface.texture);
+    render_render_meshes(scene, surface.texture);
+    render_render_atmosphere(scene, surface.texture);
 
     // ripple_submit(&renderer.ripple_context,
     //     renderer.width, renderer.height,
