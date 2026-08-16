@@ -1,14 +1,14 @@
 {
-  "date": "2026-08-15T18:03:57.126171884+02:00",
+  "date": "2026-08-16T21:20:36.410171192+02:00",
   "data": {
+    "/home/jan/dev/c/flos/webgpu/wgpu-native/FetchWgpuNativePrecompiled.cmake": [
+      "/home/jan/dev/c/flos/webgpu/wgpu-native/CMakeLists.txt"
+    ],
     "/home/jan/dev/c/flos/webgpu/dawn/FetchDawnPrecompiled.cmake": [
       "/home/jan/dev/c/flos/webgpu/dawn/CMakeLists.txt"
     ],
     "/home/jan/dev/c/flos/webgpu/dawn/FetchDawnSource.cmake": [
       "/home/jan/dev/c/flos/webgpu/dawn/CMakeLists.txt"
-    ],
-    "/home/jan/dev/c/flos/webgpu/wgpu-native/FetchWgpuNativePrecompiled.cmake": [
-      "/home/jan/dev/c/flos/webgpu/wgpu-native/CMakeLists.txt"
     ]
   }
 }
