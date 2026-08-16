@@ -1,3 +1,4 @@
+#include "build/debug/_deps/dawn-src/third_party/spirv-headers/src/include/spirv/unified1/spirv.h"
 #include "marrow/allocator.h"
 #include "marrow/genarr.h"
 #include "marrow/marrow.h"
@@ -89,6 +90,7 @@ typedef enum ReniTextureFormat {
     ReniTextureFormat_RGBA32Float,
     ReniTextureFormat_RGB10A2Unorm,
     ReniTextureFormat_RG11B10Ufloat,
+
     ReniTextureFormat_Depth16Unorm,
     ReniTextureFormat_Depth24Plus,
 } ReniTextureFormat;
@@ -124,7 +126,10 @@ STRUCT(ReniTextureConfig) {
 RENI_STRUCT(ReniTexture) {
     ReniTextureConfig config;
 
-    WGPUTexture texture;
+    union {
+        WGPUTexture texture;
+        WGPUSurfaceTexture surface_texture;
+    };
     WGPUTextureView view;
 
     u32 gen; // bindings check against this to know if they should recreate themselves or not
@@ -320,13 +325,13 @@ STRUCT(ReniSurfaceConfig) {
 STRUCT(ReniSurfaceState) {
     u32 width;
     u32 height;
-    ReniTextureFormat format;
 };
 
 RENI_STRUCT(ReniSurface) {
     ReniSurfaceConfig config;
     ReniSurfaceState state;
 
+    ReniTextureFormat format;
     ReniTexture texture;
     bool acquired;
 
@@ -597,6 +602,20 @@ WGPUSurface _reni_get_surface(WGPUInstance instance, RENI_BACKEND_WINDOW window)
     });
 }
 
+WGPUTextureUsage _reni_texture_usage_to_wgpu(ReniTextureUsage usage)
+{
+    WGPUTextureUsage ret = 0;
+    if(FLAG_HAS(usage, ReniTextureUsage_Undefined)) FLAG_SET(ret, WGPUTextureUsage_None);
+    if(FLAG_HAS(usage, ReniTextureUsage_CopySrc)) FLAG_SET(ret, WGPUTextureUsage_CopySrc);
+    if(FLAG_HAS(usage, ReniTextureUsage_CopyDst)) FLAG_SET(ret, WGPUTextureUsage_CopyDst);
+    if(FLAG_HAS(usage, ReniTextureUsage_TextureBinding)) FLAG_SET(ret, WGPUTextureUsage_TextureBinding);
+    if(FLAG_HAS(usage, ReniTextureUsage_StorageBinding)) FLAG_SET(ret, WGPUTextureUsage_StorageBinding);
+    if(FLAG_HAS(usage, ReniTextureUsage_RenderAttachment)) FLAG_SET(ret, WGPUTextureUsage_RenderAttachment);
+    if(FLAG_HAS(usage, ReniTextureUsage_TransientAttachment)) FLAG_SET(ret, WGPUTextureUsage_TransientAttachment);
+    if(FLAG_HAS(usage, ReniTextureUsage_StorageAttachment)) FLAG_SET(ret, WGPUTextureUsage_StorageAttachment);
+    return ret;
+}
+
 ReniSurface reni_create_surface(Reni* reni, ReniSurfaceConfig config)
 {
     if (!config.mode) config.mode = ReniPresentMode_Fifo;
@@ -605,9 +624,18 @@ ReniSurface reni_create_surface(Reni* reni, ReniSurfaceConfig config)
     if (!impl.surface) return (ReniSurface){ 0 };
 
     WGPUSurfaceCapabilities caps; wgpuSurfaceGetCapabilities(impl.surface, reni->adapter, &caps);
-    impl.state.format = _reni_texture_format_from_wgpu(caps.formats[0]);
+    impl.format = _reni_texture_format_from_wgpu(caps.formats[0]);
+
+    impl.texture = (ReniTexture){ .h = genarr_add(reni->textures, (ReniTextureImpl){ 0 }) };
 
     return (ReniSurface){ .h = genarr_add(reni->surfaces, impl) };
+}
+
+ReniTexture reni_get_surface_texture(Reni* reni, ReniSurface surface)
+{
+    ReniSurfaceImpl* impl = genarr_get(reni->surfaces, surface.h);
+    if (!impl) RENI_ERR("Invalid surface handle");
+    return impl->texture;
 }
 
 void reni_surface_update(Reni* reni, ReniSurface surface, ReniSurfaceState state)
@@ -615,19 +643,17 @@ void reni_surface_update(Reni* reni, ReniSurface surface, ReniSurfaceState state
     ReniSurfaceImpl* impl = genarr_get(reni->surfaces, surface.h);
     if (!impl) RENI_ERR("Invalid surface handle");
 
-    if (state.width == impl->state.width &&
-        state.height == impl->state.height &&
-        state.format == impl->state.format
-    ) return;
+    if (state.width == impl->state.width && state.height == impl->state.height)
+        return;
 
     impl->state = state;
     wgpuSurfaceConfigure(impl->surface,
-        &(WGPUSurfaceConfiguration){
+        &(WGPUSurfaceConfiguration) {
             .width = state.width,
             .height = state.height,
             .device = reni->device,
             .usage = WGPUTextureUsage_RenderAttachment,
-            .format = _reni_texture_format_to_wgpu(state.format),
+            .format = _reni_texture_format_to_wgpu(impl->format),
             .presentMode = _reni_present_mode_to_wgpu(impl->config.mode),
         }
     );
@@ -641,13 +667,71 @@ void reni_release_surface(Reni* reni, ReniSurface surface)
     genarr_remove(reni->surfaces, surface.h);
 }
 
-ReniTexture reni_create_texture(Reni*, ReniTextureConfig);
-const ReniTextureConfig* reni_get_texture_config(Reni*, ReniTexture);
-ReniTexture reni_recreate_texture(Reni*, ReniTexture, ReniTextureConfig);
-void reni_resize_texture(Reni*, ReniTexture, u32 w, u32 h); // keeps prev config
-void reni_release_texture(Reni*, ReniTexture);
+ReniTexture reni_recreate_texture(Reni* reni, ReniTexture texture, ReniTextureConfig config);
+ReniTexture reni_create_texture(Reni* reni, ReniTextureConfig config)
+{
+    ReniTexture texture = { .h = genarr_add(reni->textures, (ReniTextureImpl){ .config = config, }) };
+    reni_recreate_texture(reni, texture, config);
+    return texture;
+}
 
-ReniTextureFormat reni_get_texture_format(Reni*, ReniTexture);
+ReniTexture reni_recreate_texture(Reni* reni, ReniTexture texture, ReniTextureConfig config)
+{
+    ReniTextureImpl* impl = genarr_get(reni->textures, texture.h);
+    if (!impl) return reni_create_texture(reni, config);
+
+    if (impl->view) wgpuTextureViewRelease(impl->view);
+    if (impl->texture) wgpuTextureRelease(impl->texture);
+
+    impl->texture = wgpuDeviceCreateTexture(reni->device, &(WGPUTextureDescriptor) {
+        .label = WEBGPU_STR_SLICE(config.name),
+        .usage = _reni_texture_usage_to_wgpu(config.usage),
+        .dimension = WGPUTextureDimension_2D,
+        .size = { .width = config.width, .height = config.height, .depthOrArrayLayers = 1 },
+        .format = _reni_texture_format_to_wgpu(config.format),
+        .sampleCount = config.multisampled ? 4 : 1,
+        .mipLevelCount = 1,
+    });
+
+    bool is_depth_format = config.format == ReniTextureFormat_Depth16Unorm || config.format == ReniTextureFormat_Depth24Plus;
+    impl->view = wgpuTextureCreateView(impl->texture, &(WGPUTextureViewDescriptor) {
+        .label = WEBGPU_STR_SLICE(config.name),
+        .dimension = WGPUTextureViewDimension_2D,
+        .mipLevelCount = 1,
+        .arrayLayerCount = 1,
+        .aspect = is_depth_format ? WGPUTextureAspect_DepthOnly : WGPUTextureAspect_All
+    });
+
+    impl->gen++;
+    return texture;
+}
+
+const ReniTextureConfig* reni_get_texture_config(Reni* reni, ReniTexture texture)
+{
+    ReniTextureImpl* impl = genarr_get(reni->textures, texture.h);
+    if (!impl) RENI_ERR("Invalid texture handle");
+    return &impl->config;
+}
+
+void reni_texture_resize(Reni* reni, ReniTexture texture, u32 w, u32 h)
+{
+    ReniTextureConfig config = *reni_get_texture_config(reni, texture);
+    config.width = w; config.height = h;
+    reni_recreate_texture(reni, texture, config);
+}
+
+ReniTextureFormat reni_get_texture_format(Reni* reni, ReniTexture texture)
+{
+    return reni_get_texture_config(reni, texture)->format;
+}
+
+void reni_release_texture(Reni* reni, ReniTexture texture)
+{
+    ReniTextureImpl* impl = genarr_get(reni->textures, texture.h);
+    if (impl->view) wgpuTextureViewRelease(impl->view);
+    if (impl->texture) wgpuTextureRelease(impl->texture);
+    genarr_remove(reni->textures, texture.h);
+}
 
 void reni_buffer_write(Reni* reni, ReniBuffer buffer, u8Slice data, usize offset)
 {
@@ -708,7 +792,11 @@ void reni_release_buffer(Reni* reni, ReniBuffer buffer)
     genarr_remove(reni->buffers, buffer.h);
 }
 
-ReniBinding reni_create_binding(Reni*, ReniBinding);
+ReniBinding reni_create_binding(Reni* reni, ReniBinding binding)
+{
+
+}
+
 const ReniBinding* reni_get_binding_config(Reni*, ReniBinding);
 ReniBinding reni_recreate_binding(Reni*, ReniBinding, ReniBinding);
 void reni_release_binding(Reni*, ReniBinding);
@@ -736,9 +824,12 @@ void reni_renderpass_draw(ReniRenderpass, DrawConfig);
 void reni_submit_renderpass(Reni*, ReniRenderpass);
 
 typedef enum ReniSurfaceStatus {
-    ReniSurfaceStatus_Ok,
+    ReniSurfaceStatus_SuccessOptimal,
+    ReniSurfaceStatus_SuccessSuboptimal,
+    ReniSurfaceStatus_Timeout,
+    ReniSurfaceStatus_Outdated,
+    ReniSurfaceStatus_Lost,
     ReniSurfaceStatus_Error,
-    ReniSurfaceStatus_Reconfigured,
 } ReniSurfaceStatus;
 
 STRUCT(ReniSurfaceAcquired) {
@@ -746,9 +837,54 @@ STRUCT(ReniSurfaceAcquired) {
     ReniTexture texture;
 };
 
-// also bumps the textures inner bind group gen handle so any that were referencing it get re-created
-ReniSurfaceAcquired reni_surface_acquire(Reni*, ReniSurface);
+ReniSurfaceAcquired reni_surface_acquire(Reni* reni, ReniSurface surface)
+{
+    ReniSurfaceImpl* impl = genarr_get(reni->surfaces, surface.h);
+    if (!impl) RENI_ERR("Invalid surface handle");
 
-void reni_begin(Reni*);
-// submits all acquired surfaces
-void reni_end(Reni*);
+    ReniTextureImpl* texture = genarr_get(reni->textures, impl->texture.h);
+    if (!texture) RENI_ERR("Invalid texture handle");
+
+    wgpuSurfaceGetCurrentTexture(impl->surface, &texture->surface_texture);
+    texture->view = wgpuTextureCreateView(
+        texture->surface_texture.texture,
+        &(WGPUTextureViewDescriptor){
+            .label = WEBGPU_STR("Surface texture view"),
+            .format = wgpuTextureGetFormat(texture->surface_texture.texture),
+            .dimension = WGPUTextureViewDimension_2D,
+            .mipLevelCount = 1,
+            .arrayLayerCount = 1,
+            .aspect = WGPUTextureAspect_All,
+        }
+    );
+
+    impl->acquired = true;
+    texture->gen++; // !!!!
+    return (ReniSurfaceAcquired) {
+        .status = ReniSurfaceStatus_SuccessOptimal, // TODO
+        .texture = impl->texture
+    };
+}
+
+void reni_begin(Reni* reni)
+{
+    if (reni->encoder) RENI_ERR("Begin called without a proper reni_end()");
+    reni->encoder = wgpuDeviceCreateCommandEncoder(reni->device, &(WGPUCommandEncoderDescriptor){
+        .label = WEBGPU_STR("Encoder dude")
+    });
+}
+void reni_end(Reni* reni)
+{
+    WGPUCommandBuffer command = wgpuCommandEncoderFinish(reni->encoder, &(WGPUCommandBufferDescriptor){ .label = WEBGPU_STR("Command dude") });
+    wgpuCommandEncoderRelease(reni->encoder); reni->encoder = nullptr;
+    wgpuQueueSubmit(reni->queue, 1, &command);
+    wgpuCommandBufferRelease(command);
+
+    GENARR_ITER(ReniSurfaceImpl) iter = { 0 };
+    while (genarr_next_valid(reni->surfaces, &iter)){
+        ReniSurfaceImpl* impl = iter._val;
+        if (!impl->acquired) continue;
+        wgpuSurfacePresent(impl->surface);
+        impl->acquired = false;
+    }
+}

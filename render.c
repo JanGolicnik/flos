@@ -30,7 +30,7 @@ struct {
     struct {
         WGPUBindGroupLayout layout;
         WGPUBindGroup bind_group;
-        WGPUBuffer buffer;
+        ReniBuffer buffer;
         struct {
             mat4 camera_matrix;
             mat4 inv_camera_matrix;
@@ -44,9 +44,7 @@ struct {
     } shader_data;
 
     struct {
-        WGPUTexture texture;
-        WGPUTextureView view;
-        WGPUExtent3D extent;
+        ReniTexture texture;
     } depth;
 
     struct {
@@ -60,20 +58,20 @@ struct {
     struct {
         WGPUBindGroupLayout layout;
         WGPUBindGroup bind_group;
-        WGPUDynamicBuffer buffer;
+        ReniBuffer buffer;
         WGPURenderPipeline pipeline;
     } atmosphere;
 
     GENARR(Mesh) meshes;
 
-    RippleContext ripple_context;
+    // RippleContext ripple_context;
 } renderer = { 0 };
 
 MeshHandle render_mesh_create(u8Slice vertices, u8Slice indices, usize instance_size, u32 shader) {
     Mesh mesh = (Mesh) {
-        .vertex_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, vertices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
-        .index_buffer = wgpuDeviceCreateBufferWithData(renderer.device, renderer.queue, indices, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index),
-        .instance_buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 8, instance_size, WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex),
+        .vertex_buffer = reni_create_buffer(renderer.reni, (ReniBufferConfig) {  .data = vertices, .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex  }),
+        .index_buffer = reni_create_buffer(renderer.reni, (ReniBufferConfig) {  .data = indices, .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index  }),
+        .instance_buffer = reni_create_buffer(renderer.reni, (ReniBufferConfig) {  .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex  }),
         .shader = shader,
     };
     vektor_init(mesh.instance_data, 1, memory.stable);
@@ -336,7 +334,10 @@ void render_init_atmosphere(void) {
         }
     });
 
-    renderer.atmosphere.buffer = wgpuDeviceCreateDynamicBuffer(renderer.device, 1, sizeof(AtmospherePlanet), WGPUBufferUsage_CopyDst | WGPUBufferUsage_Storage);
+    renderer.atmosphere.buffer = reni_create_buffer(renderer.reni, (ReniBufferConfig) {
+        .name = sstr("atmosphere buffer"),
+        .usage = ReniBufferUsage_CopyDst | ReniBufferUsage_Storage
+    });
 
     renderer.atmosphere.pipeline = wgpuDeviceCreateRenderPipeline(renderer.device, &(WGPURenderPipelineDescriptor) {
         .label = WEBGPU_STR("atmosphere"),
@@ -381,8 +382,8 @@ void render_init(void) {
     renderer.surface = reni_create_surface(renderer.reni, (ReniSurfaceConfig) { window.window });
 
     renderer.shader_data.buffer = reni_create_buffer(renderer.reni, (ReniBufferConfig){
-        .size = sizeof(renderer.shader_data.data),
-        .usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform
+        .name = sstr("shader data buffer"),
+        .usage = ReniBufferUsage_CopyDst | ReniBufferUsage_Uniform
     });
 
     renderer.shader_data.layout = wgpuDeviceCreateBindGroupLayout(renderer.device, &(WGPUBindGroupLayoutDescriptor) {
@@ -419,19 +420,13 @@ void render_init(void) {
     renderer.width = 0;
     renderer.height = 0;
 
-    renderer.ripple_context = ripple_initialize((RippleBackendRendererConfig){
-        .device = renderer.device,
-        .queue = renderer.queue,
-        .surface_format = renderer.surface_format
-    });
-    ripple_make_active_context(&renderer.ripple_context);
+    // renderer.ripple_context = ripple_initialize((RippleBackendRendererConfig){
+    //     .reni = renderer.reni
+    // });
+    // ripple_make_active_context(&renderer.ripple_context);
 }
 
 void renderer_reconfigure_atmosphere_bind_group(void) {
-    if (renderer.atmosphere.bind_group) {
-        wgpuBindGroupRelease(renderer.atmosphere.bind_group);
-    }
-
     renderer.atmosphere.bind_group = wgpuDeviceCreateBindGroup(renderer.device, &(WGPUBindGroupDescriptor) {
         .layout = renderer.atmosphere.layout,
         .entryCount = 2,
@@ -450,37 +445,13 @@ void renderer_reconfigure_atmosphere_bind_group(void) {
 }
 
 void renderer_reconfigure(void) {
-    reni_surface_update(reni, )
-    if (renderer.depth.texture) {
-        wgpuTextureRelease(renderer.depth.texture);
-        wgpuTextureViewRelease(renderer.depth.view);
-    }
-
-    renderer.depth.extent = (WGPUExtent3D){
+    reni_surface_update(reni, (ReniSurfaceState) {
         .width = renderer.width,
         .height = renderer.height,
-        .depthOrArrayLayers = 1
-    };
-    renderer.depth.texture = wgpuDeviceCreateTexture(renderer.device,
-        &(WGPUTextureDescriptor){
-            .label = WEBGPU_STR("depth texture"),
-            .size = renderer.depth.extent,
-            .format = WGPUTextureFormat_Depth24Plus,
-            .usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding,
-            .dimension = WGPUTextureDimension_2D,
-            .mipLevelCount = 1,
-            .sampleCount = 1
-        }
-    );
-    renderer.depth.view = wgpuTextureCreateView(renderer.depth.texture,
-        &(WGPUTextureViewDescriptor){
-            .format = WGPUTextureFormat_Depth24Plus,
-            .dimension = WGPUTextureViewDimension_2D,
-            .mipLevelCount = 1,
-            .arrayLayerCount = 1,
-            .aspect = WGPUTextureAspect_DepthOnly,
-        }
-    );
+    });
+
+    reni_texture_resize(renderer.reni, renderer.depth.texture, width = renderer.width, height = renderer.height);
+
     renderer_reconfigure_atmosphere_bind_group();
 }
 
@@ -521,7 +492,7 @@ void render_render_meshes(Scene* scene, WGPUCommandEncoder encoder, WGPUTextureV
         MeshIter mesh_iter = { 0 };
         while (genarr_next_valid(renderer.meshes, &mesh_iter)) {
             u8Slice slice = slice_vektor(mesh_iter.mesh->instance_data);
-            wgpuDeviceQueueWriteDynamicBufferRaw(renderer.device, renderer.queue, &mesh_iter.mesh->instance_buffer, slice);
+            reni_buffer_write(renderer.reni, mesh_iter.mesh->instance_buffer, slice, 0);
         }
     }
 
@@ -579,11 +550,7 @@ void render_render_atmosphere(Scene* scene, WGPUCommandEncoder encoder, WGPUText
         buffer[i].radius = iter.entity->transform.world.scale;
         i++;
     }
-
-    if (wgpuDeviceQueueWriteDynamicBufferRaw(renderer.device, renderer.queue, &renderer.atmosphere.buffer, slice_u8_arr(buffer)))
-    {
-        renderer_reconfigure_atmosphere_bind_group();
-    }
+    reni_buffer_write(renderer.reni, renderer.atmosphere.buffer, slice_u8_arr(buffer), 0);
 
     WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(
         encoder,
@@ -637,44 +604,22 @@ void render_prepare(Scene* scene) {
 void render_render(Scene* scene) {
     render_prepare(scene);
 
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(renderer.device, &(WGPUCommandEncoderDescriptor){ .label = WEBGPU_STR("Command encoder") });
+    reni_begin(renderer.reni);
 
-    WGPUSurfaceTexture surface_texture;
-    wgpuSurfaceGetCurrentTexture(renderer.surface, &surface_texture);
-    WGPUTextureView surface_texture_view = wgpuTextureCreateView(
-        surface_texture.texture,
-        &(WGPUTextureViewDescriptor){
-            .label = WEBGPU_STR("Surface texture view"),
-            .format = wgpuTextureGetFormat(surface_texture.texture),
-            .dimension = WGPUTextureViewDimension_2D,
-            .mipLevelCount = 1,
-            .arrayLayerCount = 1,
-            .aspect = WGPUTextureAspect_All,
-        }
-    );
+    ReniSurfaceAcquired surface = reni_surface_acquire(renderer.reni, renderer.surface);
+    if (surface.status != ReniSurfaceStatus_SuccessOptimal)
+        mrw_error("Surface acquire error {}", (u32)surface.status);
 
-    render_render_meshes(scene, encoder, surface_texture_view);
-    render_render_atmosphere(scene, encoder, surface_texture_view);
+    render_render_meshes(scene, encoder, surface.texture);
+    render_render_atmosphere(scene, encoder, surface.texture);
 
-    ripple_submit(&renderer.ripple_context,
-        renderer.width, renderer.height,
-        (RippleRenderData){
-            .queue = renderer.queue,
-            .device = renderer.device,
-            .encoder = encoder,
-            .texture_view = surface_texture_view
-        }
-    );
+    // ripple_submit(&renderer.ripple_context,
+    //     renderer.width, renderer.height,
+    //     (RippleRenderData) {
+    //         .reni = renderer.reni,
+    //         .texture_view = surface.texture
+    //     }
+    // );
 
-    WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, &(WGPUCommandBufferDescriptor){ .label = WEBGPU_STR("Command buffer") });
-    wgpuCommandEncoderRelease(encoder);
-    wgpuQueueSubmit(renderer.queue, 1, &command);
-    wgpuCommandBufferRelease(command);
-
-    wgpuTextureViewRelease(surface_texture_view);
-    wgpuTextureRelease(surface_texture.texture);
-
-    #ifndef __EMSCRIPTEN__
-    wgpuSurfacePresent(renderer.surface);
-    #endif
+    reni_end(renderer.reni);
 }
