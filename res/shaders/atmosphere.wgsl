@@ -104,5 +104,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         scatter = scatter + alpha - scatter * alpha;
     }
 
-    return vec4f(color * scatter, 0.1f);
+    return vec4f(color * scatter, 1.0f);
 }

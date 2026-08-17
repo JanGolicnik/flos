@@ -318,9 +318,9 @@ void render_init(void) {
         .entries[0].buffer.buffer = renderer.shader_data.buffer
     });
 
-    renderer.shader_data.data.atmosphere_height = 1.2f;
-    renderer.shader_data.data.atmosphere_density = 1.2;
-    renderer.shader_data.data.atmosphere_falloff = 2.0f;
+    // renderer.shader_data.data.atmosphere_height = 1.2f;
+    // renderer.shader_data.data.atmosphere_density = 1.2;
+    // renderer.shader_data.data.atmosphere_falloff = 2.0f;
 
     render_init_planets();
     render_init_plants();
