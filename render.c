@@ -66,7 +66,7 @@ struct {
 
     GENARR(Mesh) meshes;
 
-    // RippleContext ripple_context;
+    RippleContext ripple_context;
 } renderer = { 0 };
 
 MeshHandle render_mesh_create(u8Slice vertices, u8Slice indices, usize instance_size, u32 shader) {
@@ -122,6 +122,7 @@ void render_init_planets(void) {
                 }
             },
             .buffers[1] = {
+                .instance = true,
                 .stride = sizeof(PlanetInstance),
                 .attributes[0] = {
                     .location = 3,
@@ -193,7 +194,8 @@ void render_init_plants(void) {
                 }
             },
             .buffers[1] = {
-                .stride = sizeof(PlanetInstance),
+                .instance = true,
+                .stride = sizeof(Instance),
                 .attributes[0] = {
                     .location = 3,
                     .format = ReniVertexFormat_Float32x4,
@@ -232,7 +234,7 @@ void render_init_plants(void) {
 
 void render_init_atmosphere(void) {
     renderer.atmosphere.layout = reni_create_binding_layout(renderer.reni, (ReniBindingLayoutConfig){
-       .name = sstr("atmosphere bindinding"),
+       .name = sstr("atmosphere bindinding layout"),
        .entries[0] = {
            .visibility = ReniShaderStage_Fragment,
            .buffer.type = ReniBufferBindingType_ReadOnlyStorage
@@ -268,6 +270,13 @@ void render_init_atmosphere(void) {
         .name = sstr("atmosphere buffer"),
         .usage = ReniBufferUsage_CopyDst | ReniBufferUsage_Storage
     });
+
+    renderer.atmosphere.binding = reni_create_binding(renderer.reni, (ReniBindingConfig) {
+        .name = sstr("atmosphere biunding"),
+        .layout = renderer.atmosphere.layout,
+        .entries[0].buffer.buffer = renderer.atmosphere.buffer,
+        .entries[1].texture = renderer.depth.texture
+    });
 }
 
 static void render_error_callback(str msg)
@@ -285,9 +294,10 @@ void render_init(void) {
     renderer.reni = &renderer._reni;
     renderer.surface = reni_create_surface(renderer.reni, (ReniSurfaceConfig) { window.window });
 
-    renderer.shader_data.buffer = reni_create_buffer(renderer.reni, (ReniBufferConfig){
-        .name = sstr("shader data buffer"),
-        .usage = ReniBufferUsage_CopyDst | ReniBufferUsage_Uniform
+    renderer.depth.texture = reni_create_texture(renderer.reni, (ReniTextureConfig){
+        .name = sstr("Depth texture"),
+        .format = ReniTextureFormat_Depth24Plus,
+        .usage = ReniTextureUsage_RenderAttachment | ReniTextureUsage_TextureBinding
     });
 
     renderer.shader_data.layout = reni_create_binding_layout(renderer.reni, (ReniBindingLayoutConfig) {
@@ -295,6 +305,11 @@ void render_init(void) {
             .visibility = ReniShaderStage_Vertex | ReniShaderStage_Fragment,
             .buffer.type = ReniBufferBindingType_Uniform,
         }
+    });
+
+    renderer.shader_data.buffer = reni_create_buffer(renderer.reni, (ReniBufferConfig){
+        .name = sstr("shader data buffer"),
+        .usage = ReniBufferUsage_CopyDst | ReniBufferUsage_Uniform
     });
 
     renderer.shader_data.binding = reni_create_binding(renderer.reni, (ReniBindingConfig) {
@@ -314,16 +329,18 @@ void render_init(void) {
     renderer.width = 0;
     renderer.height = 0;
 
+    renderer.ripple_context = ripple_initialize((RippleBackendRendererConfig){0});
     // renderer.ripple_context = ripple_initialize((RippleBackendRendererConfig){
     //     .reni = renderer.reni
     // });
-    // ripple_make_active_context(&renderer.ripple_context);
+    ripple_make_active_context(&renderer.ripple_context);
 }
 
 void render_render_meshes(Scene* scene, ReniTexture surface_texture) {
     {
         MeshIter mesh_iter = { 0 };
         while (genarr_next_valid(renderer.meshes, &mesh_iter)) {
+            mesh_iter.mesh->n_instances = 0;
             vektor_clear(mesh_iter.mesh->instance_data);
         }
     }
@@ -342,7 +359,9 @@ void render_render_meshes(Scene* scene, ReniTexture surface_texture) {
                         .shell_t = i / 15.0f,
                         .scale = entity->transform.world.scale,
                     };
+                    mesh->n_instances++;
                 }
+
                 u8Slice slice = slice_to((u8*)shells, array_size(shells));
                 vektor_add_arr(mesh->instance_data, slice);
                 continue;
@@ -350,6 +369,7 @@ void render_render_meshes(Scene* scene, ReniTexture surface_texture) {
 
             u8Slice slice = slice_u8_one(&entity->transform._matrix);
             vektor_add_arr(mesh->instance_data, slice);
+            mesh->n_instances++;
         }
     }
 

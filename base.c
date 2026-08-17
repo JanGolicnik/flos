@@ -17,6 +17,7 @@
 #include <marrow/genarr.h>
 
 #define RIPPLE_IMPLEMENTATION
+#define RIPPLE_BACKEND RIPPLE_GLFW | RIPPLE_EMPTY
 #include <ripple/ripple.h>
 #include <ripple/ripple_widgets.h>
 

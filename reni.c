@@ -274,6 +274,7 @@ typedef enum ReniBlendFactor {
     ReniBlendFactor_Zero,
     ReniBlendFactor_One,
     ReniBlendFactor_SrcAlpha,
+    ReniBlendFactor_DstAlpha,
     ReniBlendFactor_OneMinusSrcAlpha,
 } ReniBlendFactor;
 
@@ -560,6 +561,7 @@ WGPUBlendFactor _reni_blend_factor_to_wgpu(ReniBlendFactor factor)
         case ReniBlendFactor_Zero: return WGPUBlendFactor_Zero;
         case ReniBlendFactor_One: return WGPUBlendFactor_One;
         case ReniBlendFactor_SrcAlpha: return WGPUBlendFactor_SrcAlpha;
+        case ReniBlendFactor_DstAlpha: return WGPUBlendFactor_DstAlpha;
         case ReniBlendFactor_OneMinusSrcAlpha: return WGPUBlendFactor_OneMinusSrcAlpha;
     }
 }
@@ -826,7 +828,7 @@ WGPUTextureUsage _reni_texture_usage_to_wgpu(ReniTextureUsage usage)
 ReniTexture reni_recreate_texture(Reni* reni, ReniTexture texture, ReniTextureConfig config);
 ReniTexture reni_create_texture(Reni* reni, ReniTextureConfig config)
 {
-    ReniTexture texture = { .h = genarr_add(reni->textures, (ReniTextureImpl){ 0 }) };
+    ReniTexture texture = { .h = genarr_add(reni->textures, (ReniTextureImpl){ .gen = 1 }) };
     reni_recreate_texture(reni, texture, config);
     return texture;
 }
@@ -838,27 +840,30 @@ ReniTexture reni_recreate_texture(Reni* reni, ReniTexture texture, ReniTextureCo
 
     if (impl->is_surface) RENI_ERR("Cant recreate a surface texture!");
 
-    if (impl->view) wgpuTextureViewRelease(impl->view);
-    if (impl->texture) wgpuTextureRelease(impl->texture);
+    if (config.width > 0 && config.height > 0) {
+        if (impl->view) wgpuTextureViewRelease(impl->view);
+        if (impl->texture) wgpuTextureRelease(impl->texture);
 
-    impl->texture = wgpuDeviceCreateTexture(reni->device, &(WGPUTextureDescriptor) {
-        .label = WEBGPU_STR_SLICE(config.name),
-        .usage = _reni_texture_usage_to_wgpu(config.usage),
-        .dimension = WGPUTextureDimension_2D,
-        .size = { .width = config.width, .height = config.height, .depthOrArrayLayers = 1 },
-        .format = _reni_texture_format_to_wgpu(config.format),
-        .sampleCount = config.multisampled ? 4 : 1,
-        .mipLevelCount = 1,
-    });
+        impl->texture = wgpuDeviceCreateTexture(reni->device, &(WGPUTextureDescriptor) {
+            .label = WEBGPU_STR_SLICE(config.name),
+            .usage = _reni_texture_usage_to_wgpu(config.usage),
+            .dimension = WGPUTextureDimension_2D,
+            .size = { .width = config.width, .height = config.height, .depthOrArrayLayers = 1 },
+            .format = _reni_texture_format_to_wgpu(config.format),
+            .sampleCount = config.multisampled ? 4 : 1,
+            .mipLevelCount = 1,
+        });
 
-    bool is_depth_format = config.format == ReniTextureFormat_Depth16Unorm || config.format == ReniTextureFormat_Depth24Plus;
-    impl->view = wgpuTextureCreateView(impl->texture, &(WGPUTextureViewDescriptor) {
-        .label = WEBGPU_STR_SLICE(config.name),
-        .dimension = WGPUTextureViewDimension_2D,
-        .mipLevelCount = 1,
-        .arrayLayerCount = 1,
-        .aspect = is_depth_format ? WGPUTextureAspect_DepthOnly : WGPUTextureAspect_All
-    });
+        bool is_depth_format = config.format == ReniTextureFormat_Depth16Unorm || config.format == ReniTextureFormat_Depth24Plus;
+        impl->view = wgpuTextureCreateView(impl->texture, &(WGPUTextureViewDescriptor) {
+            .label = WEBGPU_STR_SLICE(config.name),
+            .dimension = WGPUTextureViewDimension_2D,
+            .mipLevelCount = 1,
+            .arrayLayerCount = 1,
+            .aspect = is_depth_format ? WGPUTextureAspect_DepthOnly : WGPUTextureAspect_All
+        });
+    }
+
 
     impl->config = config;
     impl->gen++;
@@ -1111,7 +1116,7 @@ void reni_release_binding_layout(Reni* reni, ReniBindingLayout layout)
 
 ReniBinding reni_create_binding(Reni* reni, ReniBindingConfig config)
 {
-    return (ReniBinding){ .h = genarr_add(reni->bindings, (ReniBindingImpl){ .config = config, }) };
+    return (ReniBinding){ .h = genarr_add(reni->bindings, (ReniBindingImpl){ .config = config }) };
 }
 
 const ReniBindingConfig* reni_get_binding_config(Reni* reni, ReniBinding binding)
@@ -1495,7 +1500,7 @@ void reni_renderpass_draw(Reni* reni, ReniRenderpass* pass, ReniDrawConfig confi
         wgpuRenderPassEncoderSetVertexBuffer(pass->render_pass, 0, vertices->buffer, 0, vertices->used);
     }
 
-    if (config.n_instances) {
+    if (config.instances.h.valid) {
         ReniBufferImpl* instances = genarr_get(reni->buffers, config.instances.h);
         if (!instances) RENI_ERR("Invalid instances buffer handle!");
         wgpuRenderPassEncoderSetVertexBuffer(pass->render_pass, 1, instances->buffer, 0, instances->used);

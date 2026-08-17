@@ -32,11 +32,11 @@ void game_update_player(Scene* scene) {
 
     struct Transform* world = &entity->transform.world;
 
-    // text(mrw_format("pos: {.2f} {.2f} {.2f}", memory.frame,
-    //     world->pos.x,
-    //     world->pos.y,
-    //     world->pos.z
-    // ));
+    text(mrw_format("pos: {.2f} {.2f} {.2f}", memory.frame,
+        world->pos.x,
+        world->pos.y,
+        world->pos.z
+    ));
 
     Entity* planet = scene_get_entity(scene, phys->planet);
 
@@ -101,7 +101,7 @@ void game_update_player(Scene* scene) {
         break;
     }
 
-    // text(mrw_format("vely: {.3f}", memory.frame, phys->vel.y));
+    text(mrw_format("vely: {.3f}", memory.frame, phys->vel.y));
 }
 
 void game_update_physics(Scene* scene) {
@@ -139,19 +139,19 @@ void game_update_physics(Scene* scene) {
 }
 
 void game_update(Scene* scene) {
-    // text(mrw_format("hello! you are running at {} fps.", memory.frame, game.avg_fps));
+    text(mrw_format("hello! you are running at {} fps.", memory.frame, game.avg_fps));
 
-    // slider("planet stuff", &planet_grass_scale, 0.0001f, 0.01f, memory.frame);
+    slider("planet stuff", &planet_grass_scale, 0.0001f, 0.01f, memory.frame);
 
-    // slider("atmo height", &renderer.shader_data.data.atmosphere_height, 1.0f, 5.0f, memory.frame);
-    // slider("atmo density", &renderer.shader_data.data.atmosphere_density, 0.0f, 2.0f, memory.frame);
-    // slider("atmo falloff", &renderer.shader_data.data.atmosphere_falloff, 1.0f, 50.0f, memory.frame);
+    slider("atmo height", &renderer.shader_data.data.atmosphere_height, 1.0f, 5.0f, memory.frame);
+    slider("atmo density", &renderer.shader_data.data.atmosphere_density, 0.0f, 2.0f, memory.frame);
+    slider("atmo falloff", &renderer.shader_data.data.atmosphere_falloff, 1.0f, 50.0f, memory.frame);
 
-    // if (slider("hello !", &branch, 0.0f, 2.0f, memory.frame)) {
-    //     PlantTemplate template = game.plant_templates[0] = plant_generate();
-    //     PlantMesh mesh = plant_meshify(&template, memory.frame);
-    //     render_mesh_re_create(game.plant_mesh, slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(Instance), 0);
-    // }
+    if (slider("hello !", &branch, 0.0f, 2.0f, memory.frame)) {
+        PlantTemplate template = game.plant_templates[0] = plant_generate();
+        PlantMesh mesh = plant_meshify(&template, memory.frame);
+        render_mesh_re_create(game.plant_mesh, slice_u8(mesh.vertices), slice_u8(mesh.indices), sizeof(Instance), 0);
+    }
 
     game_update_player(scene);
     game_update_physics(scene);
@@ -264,17 +264,17 @@ void game_on_frame(void *_) {
     }
     game.prev_time = time;
 
-    // RIPPLE(
-    //     FORM(.width = PERCENT(1.0f, SVT_RELATIVE_CHILD), .height = PERCENT(1.0f, SVT_RELATIVE_CHILD)),
-    //     RECTANGLE(.color = RIPPLE_RGBA(0x2e2e2ebf), .radiusBR = .15f))
-    // {
-    //     if (STATE().hovered) {
-    //         window.keys[KEY_PRESSED][KEY_M1] = false;
-    //     }
+    RIPPLE(
+        FORM(.width = PERCENT(1.0f, SVT_RELATIVE_CHILD), .height = PERCENT(1.0f, SVT_RELATIVE_CHILD)),
+        RECTANGLE(.color = RIPPLE_RGBA(0x2e2e2ebf), .radiusBR = .15f))
+    {
+        if (STATE().hovered) {
+            window.keys[KEY_PRESSED][KEY_M1] = false;
+        }
 
         game_update(game.current_scene);
         window_update_input(memory.frame);
-    // }
+    }
 
     render_render(game.current_scene);
 

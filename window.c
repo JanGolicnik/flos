@@ -179,14 +179,14 @@ void window_update_input(Allocator* allocator) {
         window.keys[KEY_RELEASED][i] = false;
     }
 
-    // if (!CURSOR().consumed && CURSOR().left.pressed) {
+    if (!CURSOR().consumed && CURSOR().left.pressed) {
     #ifdef __EMSCRIPTEN__
         emscripten_request_pointerlock("#canvas", EM_TRUE);
     #else
         glfwSetInputMode(window.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
         window.mouse.has_lock = true;
     #endif
-    // }
+    }
 
     // text(mrw_format("mousedxdy: {.2f} {.2f}", allocator,
     //     window.mouse.dx,
