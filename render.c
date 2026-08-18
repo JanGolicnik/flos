@@ -1,5 +1,3 @@
-#include "cglm/io.h"
-#include "marrow/marrow.h"
 #define FLOS_RENDER
 #include "base.c"
 
@@ -25,7 +23,6 @@ typedef GENARR_ITER_ALIAS(Mesh, mesh) MeshIter;
 
 struct {
     u32 width, height;
-    Reni _reni;
     Reni* reni;
     ReniSurface surface;
 
@@ -285,13 +282,12 @@ static void render_error_callback(str msg)
 }
 
 void render_init(void) {
-    renderer._reni = reni_create_reni((ReniConfig){
+    renderer.reni = reni_create_reni((ReniConfig){
         .name = sstr("Reni !"),
         .error_callback = render_error_callback,
         .allocator = memory.stable,
         .frame_allocator = memory.frame
     });
-    renderer.reni = &renderer._reni;
     renderer.surface = reni_create_surface(renderer.reni, (ReniSurfaceConfig) {
         window.window,
         .mode = ReniPresentMode_Mailbox
@@ -400,9 +396,9 @@ void render_render_meshes(Scene* scene, ReniTexture surface_texture) {
     MeshIter iter = { 0 };
     while (genarr_next_valid(renderer.meshes, &iter)) {
         Mesh* mesh = iter.mesh;
-        reni_renderpass_set_shader(renderer.reni, &pass, iter.mesh->shader == 0 ? renderer.plants.shader : renderer.planets.shader);
-        reni_renderpass_set_binding(renderer.reni, &pass, 0, renderer.shader_data.binding);
-        reni_renderpass_draw(renderer.reni, &pass, (ReniDrawConfig) {
+        reni_renderpass_set_shader(renderer.reni, pass, iter.mesh->shader == 0 ? renderer.plants.shader : renderer.planets.shader);
+        reni_renderpass_set_binding(renderer.reni, pass, 0, renderer.shader_data.binding);
+        reni_renderpass_draw(renderer.reni, pass, (ReniDrawConfig) {
            .vertices = mesh->vertex_buffer,
            .indices = mesh->index_buffer,
            .instances = mesh->instance_buffer,
@@ -435,10 +431,10 @@ void render_render_atmosphere(Scene* scene, ReniTexture surface_texture) {
 
     ReniRenderpass pass = reni_create_renderpass(renderer.reni, (ReniRenderpassConfig){ .targets[0].texture = surface_texture });
 
-    reni_renderpass_set_shader(renderer.reni, &pass, renderer.atmosphere.shader);
-    reni_renderpass_set_binding(renderer.reni, &pass, 0, renderer.shader_data.binding);
-    reni_renderpass_set_binding(renderer.reni, &pass, 1, renderer.atmosphere.binding);
-    reni_renderpass_draw(renderer.reni, &pass, (ReniDrawConfig){ .n_vertices = 6, .n_instances = 1 });
+    reni_renderpass_set_shader(renderer.reni, pass, renderer.atmosphere.shader);
+    reni_renderpass_set_binding(renderer.reni, pass, 0, renderer.shader_data.binding);
+    reni_renderpass_set_binding(renderer.reni, pass, 1, renderer.atmosphere.binding);
+    reni_renderpass_draw(renderer.reni, pass, (ReniDrawConfig){ .n_vertices = 6, .n_instances = 1 });
 
     reni_submit_renderpass(renderer.reni, pass);
 }

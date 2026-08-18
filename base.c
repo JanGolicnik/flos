@@ -16,6 +16,9 @@
 #include <marrow/webgpu_utils.h>
 #include <marrow/genarr.h>
 
+#define RENI_IMPLEMENTATION
+#include <reni/reni.h>
+
 #define RIPPLE_IMPLEMENTATION
 #define RIPPLE_BACKEND RIPPLE_GLFW | RIPPLE_EMPTY
 #include <ripple/ripple.h>
@@ -51,9 +54,6 @@ typedef versors quats;
 #ifndef FLOS_SCENE
 #include "scene.c"
 
-#ifndef FLOS_RENI
-#include "reni.c"
-
 #ifndef FLOS_RENDER
 #include "render.c"
 
@@ -63,7 +63,6 @@ typedef versors quats;
 #ifndef FLOS_GAME
 #include "game.c"
 
-#endif
 #endif
 #endif
 #endif
