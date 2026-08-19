@@ -10,10 +10,9 @@
 #include <GLFW/glfw3.h>
 #endif
 
-#include <marrow/allocator.h>
+#include <marrow/alloc.h>
 #include <marrow/marrow.h>
 #include <marrow/json.h>
-#include <marrow/webgpu_utils.h>
 #include <marrow/genarr.h>
 
 #define RENI_IMPLEMENTATION

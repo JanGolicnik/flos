@@ -9,6 +9,6 @@ struct {
 
 void memory_init(void) {
     memory.stable = nullptr;
-    memory._frame = bump_allocator_create();
+    memory._frame = (BumpAllocator){ MRW_BUMP_IMPL };
     memory.frame = (Allocator*)&memory._frame;
 }

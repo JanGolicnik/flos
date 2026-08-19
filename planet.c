@@ -68,8 +68,8 @@ PlanetMesh planet_meshify(Allocator* allocator) {
     usize n_indices_start = array_len(icosahedron_indices);
     usize n_vertices = n_vertices_start * 6 * 6;
     usize n_indices = n_indices_start * 4 * 4;
-    Vertex* vertices = allocator_alloc(allocator, n_vertices * sizeof(Vertex), alignof(Vertex));
-    u16* indices = allocator_alloc(allocator, n_indices * sizeof(u16), alignof(u16));
+    Vertex* vertices = mrw_alloc_n(allocator, Vertex, n_vertices);
+    u16* indices = mrw_alloc_n(allocator, u16, n_indices);
 
     buf_copy(vertices, icosahedron_vertices, sizeof(icosahedron_vertices));
     buf_copy(indices, icosahedron_indices, sizeof(icosahedron_indices));

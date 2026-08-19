@@ -278,5 +278,5 @@ void game_on_frame(void *_) {
 
     render_render(game.current_scene);
 
-    bump_allocator_reset(&memory._frame);
+    mrw_bump_reset(&memory._frame);
 }

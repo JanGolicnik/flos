@@ -92,8 +92,8 @@ PlantConfig plant_parse_config(JsonObject json) {
 PlantMesh plant_meshify(PlantTemplate *plant, Allocator* allocator) {
     usize n_vertices = plant->n_shapes * 4;
     usize n_indices = plant->n_shapes * 6;
-    Vertex* vertices = allocator_alloc(allocator, n_vertices * sizeof(Vertex), alignof(Vertex));
-    u16* indices = allocator_alloc(allocator, n_indices * sizeof(u16), alignof(u16));
+    Vertex* vertices = mrw_alloc_n(allocator, Vertex, n_vertices);
+    u16* indices = mrw_alloc_n(allocator, u16, n_indices);
 
     u32 vi = 0, ii = 0;
     for (u32 i = 0; i < plant->n_shapes; i++) {
